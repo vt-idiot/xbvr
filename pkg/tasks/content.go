@@ -62,20 +62,23 @@ type BackupContentBundle struct {
 	History       []BackupSceneHistory  `xbvrbackup:"sceneHistory"`
 	Actions       []BackupSceneAction   `xbvrbackup:"actions"`
 	Akas          []models.Aka          `xbvrbackup:"akas"`
+	TagGroups     []models.TagGroup     `xbvrbackup:"tagGroups"`
 }
 type RequestRestore struct {
-	InclAllSites  bool   `json:"allSites"`
-	InclScenes    bool   `json:"inclScenes"`
-	InclFileLinks bool   `json:"inclLinks"`
-	InclCuepoints bool   `json:"inclCuepoints"`
-	InclHistory   bool   `json:"inclHistory"`
-	InclPlaylists bool   `json:"inclPlaylists"`
-	InclActorAkas bool   `json:"inclActorAkas"`
-	InclVolumes   bool   `json:"inclVolumes"`
-	InclSites     bool   `json:"inclSites"`
-	InclActions   bool   `json:"inclActions"`
-	Overwrite     bool   `json:"overwrite"`
-	UploadData    string `json:"uploadData"`
+	InclAllSites     bool   `json:"allSites"`
+	OfficalSitesOnly bool   `json:"onlyIncludeOfficalSites"`
+	InclScenes       bool   `json:"inclScenes"`
+	InclFileLinks    bool   `json:"inclLinks"`
+	InclCuepoints    bool   `json:"inclCuepoints"`
+	InclHistory      bool   `json:"inclHistory"`
+	InclPlaylists    bool   `json:"inclPlaylists"`
+	InclActorAkas    bool   `json:"inclActorAkas"`
+	InclTagGroups    bool   `json:"inclTagGroups"`
+	InclVolumes      bool   `json:"inclVolumes"`
+	InclSites        bool   `json:"inclSites"`
+	InclActions      bool   `json:"inclActions"`
+	Overwrite        bool   `json:"overwrite"`
+	UploadData       string `json:"uploadData"`
 }
 
 func CleanTags() {
@@ -142,6 +145,8 @@ func sceneDBWriter(wg *sync.WaitGroup, i *uint64, scenes <-chan models.ScrapedSc
 }
 
 func ReapplyEdits() {
+	tlog := log.WithField("task", "scrape")
+
 	var actions []models.Action
 	db, _ := models.GetDB()
 	defer db.Close()
@@ -159,7 +164,14 @@ func ReapplyEdits() {
 			Find(&actions)
 	}
 
+	actionCnt := 0
+
 	for _, a := range actions {
+		if actionCnt%100 == 0 {
+			tlog.Infof("Processing %v of %v edits", actionCnt+1, len(actions))
+		}
+		actionCnt += 1
+
 		var scene models.Scene
 		err := scene.GetIfExist(a.SceneID)
 		if err != nil {
@@ -252,6 +264,9 @@ func Scrape(toScrape string) {
 
 			var dummyAka models.Aka
 			dummyAka.UpdateAkaSceneCastRecords()
+
+			var dummyTagGroup models.TagGroup
+			dummyTagGroup.UpdateSceneTagRecords()
 
 			tlog.Infof("Updating tag counts")
 			CountTags()
@@ -443,7 +458,7 @@ func ImportBundleV1(bundleData ContentBundle) {
 
 }
 
-func BackupBundle(inclAllSites bool, inclScenes bool, inclFileLinks bool, inclCuepoints bool, inclHistory bool, inclPlaylists bool, InclActorAkas bool, inclVolumes bool, inclSites bool, inclActions bool, playlistId string) string {
+func BackupBundle(inclAllSites bool, onlyIncludeOfficalSites bool, inclScenes bool, inclFileLinks bool, inclCuepoints bool, inclHistory bool, inclPlaylists bool, InclActorAkas bool, inclTagGroups bool, inclVolumes bool, inclSites bool, inclActions bool, playlistId string, outputBundleFilename string, version string) string {
 	var out BackupContentBundle
 	var content []byte
 	exportCnt := 0
@@ -455,6 +470,13 @@ func BackupBundle(inclAllSites bool, inclScenes bool, inclFileLinks bool, inclCu
 
 		tlog := log.WithField("task", "scrape")
 		tlog.Info("Backing up content bundle...")
+
+		if outputBundleFilename == "" {
+			outputBundleFilename = "xbvr-content-bundle.json"
+		}
+		if version == "" {
+			version = "2.1"
+		}
 
 		db, _ := models.GetDB()
 		defer db.Close()
@@ -468,8 +490,15 @@ func BackupBundle(inclAllSites bool, inclScenes bool, inclFileLinks bool, inclCu
 
 		if inclScenes || inclFileLinks || inclCuepoints || inclHistory || inclActions {
 			var selectedSites []models.Site
-			if !inclAllSites {
-				db.Where(&models.Site{IsEnabled: true}).Find(&selectedSites)
+			if !inclAllSites || onlyIncludeOfficalSites {
+				tx := db.Model(&selectedSites)
+				if !inclAllSites {
+					tx = tx.Where(&models.Site{IsEnabled: true})
+				}
+				if onlyIncludeOfficalSites {
+					tx = tx.Where("name not like ?", "%(Custom %)")
+				}
+				tx.Find(&selectedSites)
 			}
 
 			if playlistId != "0" {
@@ -494,8 +523,8 @@ func BackupBundle(inclAllSites bool, inclScenes bool, inclFileLinks bool, inclCu
 				}
 
 				// check if the scene is for a site we want
-				if !inclAllSites {
-					idx := FindSite(selectedSites, scene.SceneID)
+				if !inclAllSites || onlyIncludeOfficalSites {
+					idx := FindSite(selectedSites, GetScraperId(scene.SceneID, db))
 					if idx < 0 {
 						continue
 					}
@@ -504,7 +533,8 @@ func BackupBundle(inclAllSites bool, inclScenes bool, inclFileLinks bool, inclCu
 				err = db.Preload("Files").
 					Preload("Cuepoints").
 					Preload("History").
-					Preload("Tags").
+					// do not export tag groups  or they will load back as real tags not tag groups
+					Preload("Tags", "substr(name, 1, 10)<>'tag group:'").
 					// do not export aka actors or they will load back as real actors not aka groups
 					Preload("Cast", "substr(name, 1, 4)<>'aka:'").
 					Where(&models.Scene{ID: scene.ID}).First(&scene).Error
@@ -563,10 +593,15 @@ func BackupBundle(inclAllSites bool, inclScenes bool, inclFileLinks bool, inclCu
 			db.Preload("AkaActor").Preload("Akas").Find(&akas)
 		}
 
+		var tagGroups []models.TagGroup
+		if inclTagGroups {
+			db.Preload("TagGroupTag").Preload("Tags").Find(&tagGroups)
+		}
+
 		var err error
 		out = BackupContentBundle{
 			Timestamp:     time.Now().UTC(),
-			BundleVersion: "2",
+			BundleVersion: version,
 			Volumne:       volumes,
 			Playlists:     playlists,
 			Sites:         sites,
@@ -576,6 +611,7 @@ func BackupBundle(inclAllSites bool, inclScenes bool, inclFileLinks bool, inclCu
 			History:       backupHistoryList,
 			Actions:       backupActionList,
 			Akas:          akas,
+			TagGroups:     tagGroups,
 		}
 
 		var json = jsoniter.Config{
@@ -587,7 +623,7 @@ func BackupBundle(inclAllSites bool, inclScenes bool, inclFileLinks bool, inclCu
 		content, err = json.MarshalIndent(out, "", " ")
 
 		if err == nil {
-			fName := filepath.Join(common.DownloadDir, "xbvr-content-bundle.json")
+			fName := filepath.Join(common.DownloadDir, outputBundleFilename)
 			err = ioutil.WriteFile(fName, content, 0644)
 			if err == nil {
 				tlog.Infof("Backup file generated in %v, %v scenes selected, ready to download", time.Since(t0), exportCnt)
@@ -624,16 +660,23 @@ func RestoreBundle(request RequestRestore) {
 		json.UnmarshalFromString(request.UploadData, &bundleData)
 
 		if err == nil {
-			if bundleData.BundleVersion != "2" {
-				tlog.Infof("Restore Failed! Bundle file is version %v, version %v expected", bundleData.BundleVersion, 2)
+			if bundleData.BundleVersion != "2.1" {
+				tlog.Infof("Restore Failed! Bundle file is version %v, version %v expected", bundleData.BundleVersion, "2.1")
 				return
 			}
 			db, _ := models.GetDB()
 			defer db.Close()
 
 			var selectedSites []models.Site
-			if !request.InclAllSites {
-				db.Where(&models.Site{IsEnabled: true}).Find(&selectedSites)
+			if !request.InclAllSites || request.OfficalSitesOnly {
+				tx := db.Model(&selectedSites)
+				if !request.InclAllSites {
+					tx = tx.Where(&models.Site{IsEnabled: true})
+				}
+				if request.OfficalSitesOnly {
+					tx = tx.Where("name not like ?", "%(Custom %)")
+				}
+				tx.Find(&selectedSites)
 			}
 
 			if request.InclVolumes {
@@ -663,6 +706,9 @@ func RestoreBundle(request RequestRestore) {
 			if request.InclActorAkas {
 				RestoreAkas(bundleData.Akas, request.Overwrite, db)
 			}
+			if request.InclTagGroups {
+				RestoreTagGroups(bundleData.TagGroups, request.Overwrite, db)
+			}
 
 			if request.InclScenes || request.InclFileLinks {
 				UpdateSceneStatus(db)
@@ -675,6 +721,10 @@ func RestoreBundle(request RequestRestore) {
 			if request.InclScenes || request.InclActorAkas {
 				var aka models.Aka
 				aka.UpdateAkaSceneCastRecords()
+			}
+			if request.InclScenes || request.InclTagGroups {
+				var tagGroup models.TagGroup
+				tagGroup.UpdateSceneTagRecords()
 			}
 
 			tlog.Infof("Restore complete")
@@ -695,7 +745,7 @@ func RestoreScenes(scenes []models.Scene, inclAllSites bool, selectedSites []mod
 		}
 		// check if the scene is for a site we want
 		if !inclAllSites {
-			idx := FindSite(selectedSites, scene.SceneID)
+			idx := FindSite(selectedSites, scene.ScraperId)
 			if idx < 0 {
 				continue
 			}
@@ -713,6 +763,12 @@ func RestoreScenes(scenes []models.Scene, inclAllSites bool, selectedSites []mod
 			db.Where(&models.Tag{Name: scene.Tags[i].Name}).FirstOrCreate(&tmpTag)
 			scene.Tags[i] = tmpTag
 		}
+		var site models.Site
+		siteErr := site.GetIfExist(scene.ScraperId)
+		if siteErr != nil {
+			scene.IsSubscribed = site.Subscribed
+		}
+
 		if found.ID == 0 { // id = 0 is a new record
 			scene.ID = 0 // dont use the id from json
 			models.SaveWithRetry(db, &scene)
@@ -739,7 +795,7 @@ func RestoreCuepoints(sceneCuepointList []BackupSceneCuepoint, inclAllSites bool
 		}
 		// check if the scene is for a site we want
 		if !inclAllSites {
-			idx := FindSite(selectedSites, cuepoints.SceneID)
+			idx := FindSite(selectedSites, GetScraperId(cuepoints.SceneID, db))
 			if idx < 0 {
 				continue
 			}
@@ -788,7 +844,7 @@ func RestoreSceneFileLinks(backupFileList []BackupFileLink, inclAllSites bool, s
 
 		// check if the scene is for a site we want
 		if !inclAllSites {
-			idx := FindSite(selectedSites, backupSceneFiles.SceneID)
+			idx := FindSite(selectedSites, GetScraperId(backupSceneFiles.SceneID, db))
 			if idx < 0 {
 				continue
 			}
@@ -838,7 +894,7 @@ func RestoreHistory(sceneHistoryList []BackupSceneHistory, inclAllSites bool, se
 		}
 		// check if the scene is for a site we want
 		if !inclAllSites {
-			idx := FindSite(selectedSites, histories.SceneID)
+			idx := FindSite(selectedSites, GetScraperId(histories.SceneID, db))
 			if idx < 0 {
 				continue
 			}
@@ -895,7 +951,7 @@ func RestoreActions(sceneActionList []BackupSceneAction, inclAllSites bool, sele
 		}
 		// check if the scene is for a site we want
 		if !inclAllSites {
-			idx := FindSite(selectedSites, actions.SceneID)
+			idx := FindSite(selectedSites, GetScraperId(actions.SceneID, db))
 			if idx < 0 {
 				continue
 			}
@@ -992,6 +1048,7 @@ func RestoreSites(sites []models.Site, overwrite bool, db *gorm.DB) {
 			models.SaveWithRetry(db, &site)
 			addedCnt++
 		}
+		db.Model(&models.Scene{}).Where("scraper_id = ?", site.ID).Update("is_subscribed", site.Subscribed)
 	}
 	tlog.Infof("%v Sites  restored", addedCnt)
 }
@@ -1044,6 +1101,52 @@ func CheckActors(aka *models.Aka, aka_actor_id uint, db *gorm.DB) {
 	}
 
 }
+
+func RestoreTagGroups(tagGroups []models.TagGroup, overwrite bool, db *gorm.DB) {
+	tlog := log.WithField("task", "scrape")
+	tlog.Infof("Restoring Tag Groups")
+
+	addedCnt := 0
+	for _, tagGroup := range tagGroups {
+		var found models.TagGroup
+		db.Where(&models.TagGroup{Name: tagGroup.Name}).Preload("TagGrou").First(&found)
+
+		if found.ID == 0 { // id = 0 is a new record
+			CheckTagGroup(&tagGroup, 0, db)
+			tagGroup.ID = 0 // dont use the id from json
+			models.SaveWithRetry(db, &tagGroup)
+			addedCnt++
+		} else {
+			if overwrite {
+				CheckTagGroup(&tagGroup, found.TagGroupTagId, db)
+				tagGroup.ID = found.ID // use the Id from the existing db record
+				models.SaveWithRetry(db, &tagGroup)
+				addedCnt++
+			}
+		}
+	}
+	tlog.Infof("%v Tag Groups restored", addedCnt)
+}
+
+func CheckTagGroup(tagGroup *models.TagGroup, tag_group_tag_id uint, db *gorm.DB) {
+	// check an tag grouup exists
+	if tag_group_tag_id == 0 {
+		models.SaveWithRetry(db, &tagGroup.TagGroupTag)
+		tagGroup.TagGroupTagId = tagGroup.TagGroupTag.ID
+	} else {
+		tagGroup.TagGroupTagId = tag_group_tag_id
+		tagGroup.TagGroupTag.ID = tag_group_tag_id
+	}
+	for idx, tag := range tagGroup.Tags {
+		var found models.Tag
+
+		db.Where(&models.Tag{Name: tag.Name}).First(&found)
+		if found.ID != 0 {
+			tagGroup.Tags[idx].ID = found.ID
+		}
+	}
+}
+
 func RenameTags() {
 	db, _ := models.GetDB()
 	defer db.Close()
@@ -1086,17 +1189,19 @@ func CountTags() {
 	actor.CountActorTags()
 }
 
-func FindSite(sites []models.Site, findSite string) int {
-	findSite = strings.Replace(findSite, "-", "", -1)
-	findSite = strings.Replace(findSite, " ", "", -1)
+func FindSite(sites []models.Site, scraperId string) int {
 	for i, site := range sites {
-		id := strings.Replace(site.ID, "-", "", -1)
-		id = strings.Replace(id, " ", "", -1)
-		if strings.HasPrefix(findSite, id) {
+		if scraperId == site.ID {
 			return i
 		}
 	}
 	return -1
+}
+
+func GetScraperId(sceneId string, db *gorm.DB) string {
+	var scene models.Scene
+	db.Where(models.Scene{SceneID: sceneId}).First(&scene)
+	return scene.ScraperId
 }
 
 func CheckCuepoint(cuepoints []models.SceneCuepoint, findCuepoint models.SceneCuepoint) (int, bool) {

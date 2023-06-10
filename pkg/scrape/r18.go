@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gocolly/colly"
+	"github.com/go-resty/resty/v2"
+	"github.com/gocolly/colly/v2"
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/gjson"
 	"github.com/xbapps/xbvr/pkg/models"
-	"gopkg.in/resty.v1"
 )
 
 func ScrapeR18(knownScenes []string, out *[]models.ScrapedScene, queryString string) error {
@@ -19,6 +19,7 @@ func ScrapeR18(knownScenes []string, out *[]models.ScrapedScene, queryString str
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
+		sc.ScraperID = "r18"
 		sc.SceneType = "VR"
 		sc.Studio = "JAVR"
 		sc.HomepageURL = strings.Split(e.Request.URL.String(), "?")[0]
@@ -26,7 +27,7 @@ func ScrapeR18(knownScenes []string, out *[]models.ScrapedScene, queryString str
 
 		content_id := strings.Split(strings.Split(sc.HomepageURL, "=")[1], "/")[0]
 
-		r, _ := resty.R().Get("https://www.r18.com/api/v4f/contents/" + content_id)
+		r, _ := resty.New().R().Get("https://www.r18.com/api/v4f/contents/" + content_id)
 
 		JsonMetadata := r.String()
 		//if not VR, bye bye...

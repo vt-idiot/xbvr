@@ -46,13 +46,23 @@
               </b-switch>
             </b-field>
             <b-field>
+              <b-switch v-model="sceneDuration" type="is-dark">
+                show Duration button
+              </b-switch>
+            </b-field>
+            <b-field>
               <b-switch v-model="sceneCuepoint" type="is-dark">
-                show Cuepoints  button
+                show Cuepoints button
               </b-switch>
             </b-field>
             <b-field>
               <b-switch v-model="hspFile" type="is-dark">
                 show Hsp File button
+              </b-switch>
+            </b-field>
+            <b-field>
+              <b-switch v-model="subtitlesFile" type="is-dark">
+                show subtitles File button
               </b-switch>
             </b-field>
 
@@ -140,6 +150,14 @@ export default {
         this.$store.state.optionsWeb.web.updateCheck = value
       }
     },
+    sceneDuration: {
+      get () {
+        return this.$store.state.optionsWeb.web.sceneDuration
+      },
+      set (value) {
+        this.$store.state.optionsWeb.web.sceneDuration = value
+      }
+    },
     sceneCuepoint: {
       get () {
         return this.$store.state.optionsWeb.web.sceneCuepoint
@@ -154,6 +172,14 @@ export default {
       },
       set (value) {
         this.$store.state.optionsWeb.web.showHspFile = value
+      }
+    },
+    subtitlesFile: {
+      get () {
+        return this.$store.state.optionsWeb.web.showSubtitlesFile
+      },
+      set (value) {
+        this.$store.state.optionsWeb.web.showSubtitlesFile = value
       }
     },
     isLoading: function () {

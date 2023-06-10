@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/v2"
 	"github.com/mozillazg/go-slugify"
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/gjson"
@@ -27,6 +27,7 @@ func VirtualRealPornSite(wg *sync.WaitGroup, updateSite bool, knownScenes []stri
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
+		sc.ScraperID = scraperID
 		sc.SceneType = "VR"
 		sc.Studio = "VirtualRealPorn"
 		sc.Site = siteID
@@ -64,7 +65,8 @@ func VirtualRealPornSite(wg *sync.WaitGroup, updateSite bool, knownScenes []stri
 		})
 
 		// Tags
-		e.ForEach(`a[href*="/tag/"] span`, func(id int, e *colly.HTMLElement) {
+		//		e.ForEach(`a[href*="/tag/"] span`, func(id int, e *colly.HTMLElement) {
+		e.ForEach(`div.metaSingleData a span`, func(id int, e *colly.HTMLElement) {
 			sc.Tags = append(sc.Tags, strings.TrimSpace(e.Text))
 		})
 		if scraperID == "virtualrealgay" {
@@ -72,7 +74,7 @@ func VirtualRealPornSite(wg *sync.WaitGroup, updateSite bool, knownScenes []stri
 		}
 
 		// Duration / Release date / Synopsis
-		e.ForEach(`script[type='application/ld+json'][class!='yoast-schema-graph']`, func(id int, e *colly.HTMLElement) {
+		e.ForEach(`div script[type='application/ld+json']`, func(id int, e *colly.HTMLElement) {
 			var jsonResult map[string]interface{}
 			json.Unmarshal([]byte(e.Text), &jsonResult)
 

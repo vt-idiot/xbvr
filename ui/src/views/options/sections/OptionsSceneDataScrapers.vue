@@ -1,5 +1,6 @@
 <template>
   <div class="content">
+    <b-loading :is-full-page="true" :active.sync="isLoading"></b-loading>
     <div class="columns">
       <div class="column">
         <h3 class="title">{{$t('Scrape scenes from studios')}}</h3>
@@ -8,7 +9,7 @@
         <a class="button is-primary" v-on:click="taskScrape('_enabled')">{{$t('Run selected scrapers')}}</a>
       </div>
     </div>
-    <b-table :data="scraperList">
+    <b-table :data="scraperList" ref="scraperTable">
       <b-table-column field="is_enabled" :label="$t('Enabled')" v-slot="props" width="60" sortable>
           <span><b-switch v-model ="props.row.is_enabled" @input="$store.dispatch('optionsSites/toggleSite', {id: props.row.id})"/></span>
       </b-table-column>
@@ -21,8 +22,10 @@
               </vue-load-image>
             </span>
       </b-table-column>
-      <b-table-column field="sitename" :label="$t('Studio')" sortable searchable v-slot="props">
-        {{ props.row.sitename }}
+      <b-table-column field="sitename" :label="$t('Studio')" sortable searchable v-slot="props">        
+        <b-tooltip class="is-warning" :active="props.row.has_scraper == false" :label="$t('Scraper does not exist')"  :delay="250" >
+          <span :class="[props.row.has_scraper ? '' : 'has-text-danger']">{{ props.row.sitename }}</span>
+        </b-tooltip>
       </b-table-column>
       <b-table-column field="source" :label="$t('Source')" sortable searchable v-slot="props">
         {{ props.row.source }}
@@ -37,25 +40,35 @@
               <span class="pulsate is-info">{{$t('Scraping now...')}}</span>
             </span>
       </b-table-column>
-      <b-table-column field="options" :label="opt" v-slot="props" width="30">
+      <b-table-column field="subscribed" :label="$t('Subscribed')" v-slot="props" width="60" sortable>
+          <span><b-switch v-model ="props.row.subscribed" @input="$store.dispatch('optionsSites/toggleSubscribed', {id: props.row.id})"/></span>
+      </b-table-column>
+      <b-table-column field="options" v-slot="props" width="30">
         <div class="menu">
           <b-dropdown aria-role="list" class="is-pulled-right" position="is-bottom-left">
             <template slot="trigger">
               <b-icon icon="dots-vertical mdi-18px"></b-icon>
             </template>
-            <b-dropdown-item aria-role="listitem" @click="taskScrape(props.row.id)">
+            <b-dropdown-item v-if="props.row.has_scraper" aria-role="listitem" @click="taskScrape(props.row.id)">
               {{$t('Run this scraper')}}
             </b-dropdown-item>
-            <b-dropdown-item aria-role="listitem" @click="forceSiteUpdate(props.row.name)">
+            <b-dropdown-item v-if="props.row.has_scraper" aria-role="listitem" @click="forceSiteUpdate(props.row.name, props.row.id)">
               {{$t('Force update scenes')}}
             </b-dropdown-item>
-            <b-dropdown-item aria-role="listitem" @click="deleteScenes(props.row.name)">
+            <b-dropdown-item aria-role="listitem" @click="deleteScenes(props.row.name, props.row.id)">
               {{$t('Delete scraped scenes')}}
             </b-dropdown-item>
           </b-dropdown>
         </div>
       </b-table-column>
     </b-table>
+    <div class="columns">
+      <div class="column">
+      </div>
+        <div class="column buttons" align="right">
+          <a class="button is-small" v-on:click="toggleAllSubscriptions()">{{$t('Toggle Subscriptions of all visible sites')}}</a>
+        </div>
+    </div>
   </div>
 </template>
 
@@ -70,7 +83,8 @@ export default {
   data () {
     return {
       javrQuery: '',
-      tpdbSceneUrl: ''
+      tpdbSceneUrl: '',
+      isLoading: false
     }
   },
   mounted () {
@@ -84,18 +98,16 @@ export default {
         return u
       }
     },
-    taskScrape (site) {
-      ky.get(`/api/task/scrape?site=${site}`)
+    taskScrape (scraper) {
+      ky.get(`/api/task/scrape?site=${scraper}`)
     },
-    forceSiteUpdate (site) {
-      site = this.sanitizeSiteName(site);
+    forceSiteUpdate (site, scraper) {
       ky.post('/api/options/scraper/force-site-update', {
-        json: { site_name: site }
+        json: { scraper_id: scraper }
       })
       this.$buefy.toast.open(`Scenes from ${site} will be updated on next scrape`)
     },
-    deleteScenes (site) {
-      site = this.sanitizeSiteName(site);
+    deleteScenes (site, scraper) {
       this.$buefy.dialog.confirm({
         title: this.$t('Delete scraped scenes'),
         message: `You're about to delete scraped scenes for <strong>${site}</strong>. Previously matched files will return to unmatched state.`,
@@ -103,13 +115,19 @@ export default {
         hasIcon: true,
         onConfirm: function () {
           ky.post('/api/options/scraper/delete-scenes', {
-            json: { site_name: site }
+            json: { scraper_id: scraper }
           })
         }
       })
     },
-    sanitizeSiteName(site) {
-      return site.split('(')[0].trim();
+    async toggleAllSubscriptions(){
+      const table = this.$refs.scraperTable;
+      this.isLoading=true
+      for (let i=0; i<table.newData.length; i++) {
+        await ky.put(`/api/options/sites/subscribed/${table.newData[i].id}`, { json: {} }).json()
+        this.$store.dispatch('optionsSites/load')
+      }
+      this.isLoading=false
     },
     parseISO,
     formatDistanceToNow

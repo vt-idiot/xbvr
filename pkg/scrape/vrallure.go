@@ -11,7 +11,7 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/v2"
 	"github.com/mozillazg/go-slugify"
 	"github.com/nleeper/goment"
 	"github.com/thoas/go-funk"
@@ -27,11 +27,12 @@ func VRAllure(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 	sceneCollector := createCollector("vrallure.com")
 	siteCollector := createCollector("vrallure.com")
 
-	// Regex for original resolution of both covers and gallery
+	// Regex for original resolution of gallery
 	reGetOriginal := regexp.MustCompile(`^(https?:\/\/b8h6h9v9\.ssl\.hwcdn\.net\/vra\/)(?:largethumbs|hugethumbs|rollover_large|rollover_huge)(\/.+)-c\d{3,4}x\d{3,4}(\.\w{3,4})$`)
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
+		sc.ScraperID = scraperID
 		sc.SceneType = "VR"
 		sc.Studio = "VRAllure"
 		sc.Site = siteID
@@ -50,11 +51,11 @@ func VRAllure(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 		})
 
 		// Title / Cover
-		e.ForEach(`deo-video`, func(id int, e *colly.HTMLElement) {
-			sc.Title = strings.TrimSpace(e.Attr("title"))
-
-			tmpParts := reGetOriginal.FindStringSubmatch(e.Request.AbsoluteURL(e.Attr("cover-image")))
-			sc.Covers = append(sc.Covers, tmpParts[1]+"largethumbs"+tmpParts[2]+tmpParts[3])
+		e.ForEach(`.latest-scene-title`, func(id int, e *colly.HTMLElement) {
+			sc.Title = strings.TrimSpace(e.Text)
+		})
+		e.ForEach(`web-vr-video-player`, func(id int, e *colly.HTMLElement) {
+			sc.Covers = append(sc.Covers, e.Request.AbsoluteURL(e.Attr("coverimage")))
 		})
 
 		// Gallery
@@ -92,7 +93,7 @@ func VRAllure(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 
 		// trailer details
 		sc.TrailerType = "scrape_html"
-		params := models.TrailerScrape{SceneUrl: sc.HomepageURL, HtmlElement: "deo-video source", ContentPath: "src", QualityPath: "quality", ContentBaseUrl: "https:"}
+		params := models.TrailerScrape{SceneUrl: sc.HomepageURL, HtmlElement: "web-vr-video-player source", ContentPath: "src", QualityPath: "quality", ContentBaseUrl: "https:"}
 		strParams, _ := json.Marshal(params)
 		sc.TrailerSrc = string(strParams)
 
@@ -158,5 +159,5 @@ func VRAllure(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 }
 
 func init() {
-	registerScraper("vrallure", "VRAllure", "https://z5w6x5a4.ssl.hwcdn.net/sites/vra/favicon/apple-touch-icon-180x180.png", VRAllure)
+	registerScraper("vrallure", "VRAllure", "https://cdn-nexpectation.secure.yourpornpartner.com/sites/vra/favicon/apple-touch-icon-180x180.png", VRAllure)
 }

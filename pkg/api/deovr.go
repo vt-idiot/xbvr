@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/dustin/go-humanize"
-	"github.com/emicklei/go-restful"
-	restfulspec "github.com/emicklei/go-restful-openapi"
+	restfulspec "github.com/emicklei/go-restful-openapi/v2"
+	"github.com/emicklei/go-restful/v3"
 	"github.com/markphelps/optional"
 	"github.com/xbapps/xbvr/pkg/common"
 	"github.com/xbapps/xbvr/pkg/config"
@@ -123,16 +123,28 @@ func isDeoAuthEnabled() bool {
 	}
 }
 
+func getProto(req *restful.Request) string {
+	// If XBVR is being run behind a reverse proxy, we will use the industry
+	// standard header X-Forwarded-Proto to set the correct protocol (HTTP or HTTPS)
+	// for the generated links.
+	proto := req.Request.Header.Get("X-Forwarded-Proto")
+	if proto == "" {
+		proto = "http"
+	}
+	return proto
+}
+
 func setDeoPlayerHost(req *restful.Request) {
 	deoIP := req.Request.RemoteAddr
 	lastColon := strings.LastIndex(deoIP, ":")
+
 	if lastColon != -1 {
 		deoIP = deoIP[:lastColon]
 	}
 	if deoIP != session.DeoPlayerHost {
 		common.Log.Infof("DeoVR Player connecting from %v", deoIP)
 		session.DeoPlayerHost = deoIP
-		session.DeoRequestHost = "http://" + req.Request.Host
+		session.DeoRequestHost = getProto(req) + "://" + req.Request.Host
 	}
 }
 
@@ -179,16 +191,16 @@ func (i DeoVRResource) WebService() *restful.WebService {
 
 	ws := new(restful.WebService)
 
-	ws.Path("/deovr/").
+	ws.Path("/deovr").
 		Consumes(restful.MIME_JSON, "application/x-www-form-urlencoded").
 		Produces(restful.MIME_JSON)
 
-	ws.Route(ws.HEAD("").To(i.getDeoLibrary))
+	ws.Route(ws.HEAD("/").To(i.getDeoLibrary))
 
-	ws.Route(ws.GET("").Filter(restfulAuthFilter).To(i.getDeoLibrary).
+	ws.Route(ws.GET("/").Filter(restfulAuthFilter).To(i.getDeoLibrary).
 		Metadata(restfulspec.KeyOpenAPITags, tags).
 		Writes(DeoLibrary{}))
-	ws.Route(ws.POST("").Filter(restfulAuthFilter).To(i.getDeoLibrary).
+	ws.Route(ws.POST("/").Filter(restfulAuthFilter).To(i.getDeoLibrary).
 		Metadata(restfulspec.KeyOpenAPITags, tags).
 		Writes(DeoLibrary{}))
 
@@ -494,6 +506,7 @@ func (i DeoVRResource) getDeoScene(req *restful.Request, resp *restful.Response)
 }
 
 func (i DeoVRResource) getDeoLibrary(req *restful.Request, resp *restful.Response) {
+	common.Log.Infof("getDeoLibrary called, enabled %v", config.Config.Interfaces.DeoVR.Enabled)
 	if !config.Config.Interfaces.DeoVR.Enabled {
 		return
 	}

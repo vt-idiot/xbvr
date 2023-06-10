@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/v2"
 	"github.com/mozillazg/go-slugify"
 	"github.com/nleeper/goment"
 	"github.com/thoas/go-funk"
@@ -24,6 +24,7 @@ func VR3000(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 
 	siteCollector.OnHTML(`.row.no-gutter`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
+		sc.ScraperID = scraperID
 		sc.SceneType = "VR"
 		sc.Studio = "VR3000"
 		sc.Site = siteID

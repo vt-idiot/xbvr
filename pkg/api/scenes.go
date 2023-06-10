@@ -4,15 +4,17 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-test/deep"
 	"github.com/jinzhu/gorm"
+	"github.com/mozillazg/go-slugify"
 	"github.com/xbapps/xbvr/pkg/tasks"
 
-	"github.com/blevesearch/bleve"
-	"github.com/emicklei/go-restful"
-	restfulspec "github.com/emicklei/go-restful-openapi"
+	"github.com/blevesearch/bleve/v2"
+	restfulspec "github.com/emicklei/go-restful-openapi/v2"
+	"github.com/emicklei/go-restful/v3"
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
@@ -40,6 +42,7 @@ type RequestSelectScript struct {
 type RequestCustomScene struct {
 	SceneTitle string `json:"title"`
 	SceneID    string `json:"id"`
+	Filename   string `json:"filename"`
 }
 
 type RequestDeleteScene struct {
@@ -73,6 +76,7 @@ type ResponseGetFilters struct {
 	ReleaseMonths []string        `json:"release_month"`
 	Volumes       []models.Volume `json:"volumes"`
 	Attributes    []string        `json:"attributes"`
+	Cuepoints     []string        `json:"cuepoints"`
 }
 
 type SceneResource struct{}
@@ -155,6 +159,7 @@ func (i SceneResource) createCustomScene(req *restful.Request, resp *restful.Res
 		log.Info("SceneID missing from request!")
 		r.SceneID = "Custom-" + currentTime.Format("2006010215040506")
 	}
+	r.SceneID = slugify.Slugify(r.SceneID)
 
 	//Construct custom scene
 	var scene models.ScrapedScene
@@ -166,12 +171,14 @@ func (i SceneResource) createCustomScene(req *restful.Request, resp *restful.Res
 	scene.HomepageURL = "http://localhost/" + scene.SceneID
 	scene.Covers = append(scene.Covers, "http://localhost/dont_cause_errors")
 	scene.Released = currentTime.Format("2006-01-02")
+	if r.Filename != "" {
+		scene.Filenames = append(scene.Filenames, r.Filename)
+	}
 
 	log.Infof("Creating custom scene: \"%v\" \"%v\"", scene.SceneID, scene.Title)
 
 	//Create custom scene
 	models.SceneCreateUpdateFromExternal(db, scene)
-	tasks.SearchIndex()
 
 	//Return resulting scene
 	var resultingScene models.Scene
@@ -299,6 +306,7 @@ func (i SceneResource) getFilters(req *restful.Request, resp *restful.Response) 
 	outAttributes = append(outAttributes, "Multiple Script Files")
 	outAttributes = append(outAttributes, "Single Script File")
 	outAttributes = append(outAttributes, "Has Hsp File")
+	outAttributes = append(outAttributes, "Has Subtitles File")
 	outAttributes = append(outAttributes, "Is Favourite")
 	outAttributes = append(outAttributes, "Is Scripted")
 	outAttributes = append(outAttributes, "In Watchlist")
@@ -307,6 +315,7 @@ func (i SceneResource) getFilters(req *restful.Request, resp *restful.Response) 
 	outAttributes = append(outAttributes, "Has Simple Cuepoints")
 	outAttributes = append(outAttributes, "Has HSP Cuepoints")
 	outAttributes = append(outAttributes, "In Trailer List")
+	outAttributes = append(outAttributes, "Has Subscription")
 	outAttributes = append(outAttributes, "Rating 0")
 	outAttributes = append(outAttributes, "Rating .5")
 	outAttributes = append(outAttributes, "Rating 1")
@@ -340,6 +349,10 @@ func (i SceneResource) getFilters(req *restful.Request, resp *restful.Response) 
 	outAttributes = append(outAttributes, "MKX200")
 	outAttributes = append(outAttributes, "MKX220")
 	outAttributes = append(outAttributes, "VRCA220")
+	outAttributes = append(outAttributes, "POVR Scraper")
+	outAttributes = append(outAttributes, "SLR Scraper")
+	outAttributes = append(outAttributes, "VRPHub Scraper")
+	outAttributes = append(outAttributes, "VRPorn Scraper")
 	type Results struct {
 		Result string
 	}
@@ -380,6 +393,16 @@ func (i SceneResource) getFilters(req *restful.Request, resp *restful.Response) 
 	for _, r := range results {
 		outAttributes = append(outAttributes, "Codec "+r.Result)
 	}
+
+	// cuepoints
+	var outCuepoints []string
+	db.Table("scene_cuepoints").Select("distinct name as result").
+		Order("name").
+		Find(&results)
+	for _, r := range results {
+		outCuepoints = append(outCuepoints, r.Result)
+	}
+
 	resp.WriteHeaderAndEntity(http.StatusOK, ResponseGetFilters{
 		Tags:          outTags,
 		Cast:          outCast,
@@ -387,19 +410,24 @@ func (i SceneResource) getFilters(req *restful.Request, resp *restful.Response) 
 		ReleaseMonths: outRelease,
 		Volumes:       outVolumes,
 		Attributes:    outAttributes,
+		Cuepoints:     outCuepoints,
 	})
 }
 
 func (i SceneResource) getScene(req *restful.Request, resp *restful.Response) {
-	sceneId, err := strconv.Atoi(req.PathParameter("scene-id"))
-	if err != nil {
-		log.Error(err)
-		return
-	}
-
 	var scene models.Scene
 	db, _ := models.GetDB()
-	err = scene.GetIfExistByPK(uint(sceneId))
+
+	if strings.Contains(req.PathParameter("scene-id"), "-") {
+		scene.GetIfExist(req.PathParameter("scene-id"))
+	} else {
+		id, err := strconv.Atoi(req.PathParameter("scene-id"))
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		_ = scene.GetIfExistByPK(uint(id))
+	}
 	db.Close()
 
 	resp.WriteHeaderAndEntity(http.StatusOK, scene)

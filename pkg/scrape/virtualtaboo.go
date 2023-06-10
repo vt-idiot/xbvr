@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/v2"
 	"github.com/mozillazg/go-slugify"
 	"github.com/nleeper/goment"
 	"github.com/thoas/go-funk"
@@ -27,6 +27,7 @@ func VirtualTaboo(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
+		sc.ScraperID = scraperID
 		sc.SceneType = "VR"
 		sc.Studio = "VirtualTaboo"
 		sc.Site = siteID
@@ -67,7 +68,7 @@ func VirtualTaboo(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out
 		})
 
 		// Synopsis
-		e.ForEach(`div.video-detail div.description`, func(id int, e *colly.HTMLElement) {
+		e.ForEach(`div.video-detail .description`, func(id int, e *colly.HTMLElement) {
 			sc.Synopsis = strings.TrimSpace(e.Text)
 		})
 

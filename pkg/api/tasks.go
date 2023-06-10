@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/emicklei/go-restful"
-	restfulspec "github.com/emicklei/go-restful-openapi"
+	restfulspec "github.com/emicklei/go-restful-openapi/v2"
+	"github.com/emicklei/go-restful/v3"
 	"github.com/xbapps/xbvr/pkg/tasks"
 )
 
@@ -120,19 +120,21 @@ func (i TaskResource) exportNewFunscripts(req *restful.Request, resp *restful.Re
 
 func (i TaskResource) backupBundle(req *restful.Request, resp *restful.Response) {
 	inclAllSites, _ := strconv.ParseBool(req.QueryParameter("allSites"))
+	onlyIncludeOfficalSites, _ := strconv.ParseBool(req.QueryParameter("onlyIncludeOfficalSites"))
 	inclScenes, _ := strconv.ParseBool(req.QueryParameter("inclScenes"))
 	inclFileLinks, _ := strconv.ParseBool(req.QueryParameter("inclLinks"))
 	inclCuepoints, _ := strconv.ParseBool(req.QueryParameter("inclCuepoints"))
 	inclHistory, _ := strconv.ParseBool(req.QueryParameter("inclHistory"))
 	inclPlaylists, _ := strconv.ParseBool(req.QueryParameter("inclPlaylists"))
 	inclActorAkas, _ := strconv.ParseBool(req.QueryParameter("inclActorAkas"))
+	inclTagGroups, _ := strconv.ParseBool(req.QueryParameter("inclTagGroups"))
 	inclVolumes, _ := strconv.ParseBool(req.QueryParameter("inclVolumes"))
 	inclSites, _ := strconv.ParseBool(req.QueryParameter("inclSites"))
 	inclActions, _ := strconv.ParseBool(req.QueryParameter("inclActions"))
 	playlistId := req.QueryParameter("playlistId")
 	download := req.QueryParameter("download")
 
-	bundle := tasks.BackupBundle(inclAllSites, inclScenes, inclFileLinks, inclCuepoints, inclHistory, inclPlaylists, inclActorAkas, inclVolumes, inclSites, inclActions, playlistId)
+	bundle := tasks.BackupBundle(inclAllSites, onlyIncludeOfficalSites, inclScenes, inclFileLinks, inclCuepoints, inclHistory, inclPlaylists, inclActorAkas, inclTagGroups, inclVolumes, inclSites, inclActions, playlistId, "", "")
 	if download == "true" {
 		resp.WriteHeaderAndEntity(http.StatusOK, ResponseBackupBundle{Response: "Ready to Download from http://xxx.xxx.xxx.xxx:9999/download/xbvr-content-bundle.json"})
 	} else {

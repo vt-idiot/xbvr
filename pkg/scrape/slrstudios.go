@@ -7,14 +7,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gocolly/colly"
-	"github.com/mozillazg/go-slugify"
+	"github.com/gocolly/colly/v2"
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/gjson"
+	"github.com/xbapps/xbvr/pkg/config"
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, scraperID string, siteID string, company string) error {
+func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, scraperID string, siteID string, company string, siteURL string) error {
 	defer wg.Done()
 	logScrapeStart(scraperID, siteID)
 
@@ -29,6 +29,7 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
+		sc.ScraperID = scraperID
 		sc.SceneType = "VR"
 		sc.Studio = company
 		sc.Site = siteID
@@ -37,7 +38,7 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		// Scene ID - get from URL
 		tmp := strings.Split(sc.HomepageURL, "-")
 		sc.SiteID = tmp[len(tmp)-1]
-		sc.SceneID = slugify.Slugify(scraperID) + "-" + sc.SiteID
+		sc.SceneID = "slr-" + sc.SiteID
 
 		// Cover
 		coverURL := e.ChildAttr(`.splash-screen > img`, "src")
@@ -102,94 +103,94 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		sc.TrailerType = "slr"
 		sc.TrailerSrc = "https://api.sexlikereal.com/virtualreality/video/id/" + sc.SiteID
 
-		// Extract from JSON meta data
-		// NOTE: SLR only provides certain information like duration as json metadata inside a script element
-		// The page code also changes often and is difficult to traverse, best to get as much as possible from metadata
-		e.ForEach(`script[type="application/ld+json"]`, func(id int, e *colly.HTMLElement) {
-			JsonMetadata := strings.TrimSpace(e.Text)
+		isTransScene := e.Request.Ctx.GetAny("isTransScene").(bool)
 
-			// skip non video Metadata
-			if gjson.Get(JsonMetadata, "@type").String() == "VideoObject" {
+		// straight and trans videos use a different page structure
+		if !isTransScene {
+			// Extract from JSON meta data
+			// NOTE: SLR only provides certain information like duration as json metadata inside a script element
+			// The page code also changes often and is difficult to traverse, best to get as much as possible from metadata
+			e.ForEach(`script[type="application/ld+json"]`, func(id int, e *colly.HTMLElement) {
+				JsonMetadata := strings.TrimSpace(e.Text)
 
-				// Title
-				if gjson.Get(JsonMetadata, "name").Exists() {
-					sc.Title = strings.TrimSpace(html.UnescapeString(gjson.Get(JsonMetadata, "name").String()))
-				}
+				// skip non video Metadata
+				if gjson.Get(JsonMetadata, "@type").String() == "VideoObject" {
 
-				// Date
-				if gjson.Get(JsonMetadata, "datePublished").Exists() {
-					sc.Released = gjson.Get(JsonMetadata, "datePublished").String()
-				}
+					// Title
+					if gjson.Get(JsonMetadata, "name").Exists() {
+						sc.Title = strings.TrimSpace(html.UnescapeString(gjson.Get(JsonMetadata, "name").String()))
+					}
 
-				// Cast
-				actornames := gjson.Get(JsonMetadata, "actor.#.name")
-				for _, name := range actornames.Array() {
-					sc.Cast = append(sc.Cast, strings.TrimSpace(html.UnescapeString(name.String())))
-				}
+					// Date
+					if gjson.Get(JsonMetadata, "datePublished").Exists() {
+						sc.Released = gjson.Get(JsonMetadata, "datePublished").String()
+					}
 
-				// Duration
-				// NOTE: We should already have the duration from the scene list, but if we don't (happens for at least
-				// one scene where SLR fails to include it), we try to get it from here
-				// We don't always get it from here, because SLR fails to include hours (1h55m30s shows up as T55M30S)
-				// ...but this is ready for the format of T01H55M30S should SLR fix that
-				if sc.Duration == 0 {
-					duration := 0
-					if gjson.Get(JsonMetadata, "duration").Exists() {
-						tmpParts := durationRegExForScenePage.FindStringSubmatch(gjson.Get(JsonMetadata, "duration").String())
-						if len(tmpParts[1]) > 0 {
-							if h, err := strconv.Atoi(tmpParts[1]); err == nil {
-								hrs := h
+					// Cast
+					actornames := gjson.Get(JsonMetadata, "actor.#.name")
+					for _, name := range actornames.Array() {
+						sc.Cast = append(sc.Cast, strings.TrimSpace(html.UnescapeString(name.String())))
+					}
+
+					// Duration
+					// NOTE: We should already have the duration from the scene list, but if we don't (happens for at least
+					// one scene where SLR fails to include it), we try to get it from here
+					// We don't always get it from here, because SLR fails to include hours (1h55m30s shows up as T55M30S)
+					// ...but this is ready for the format of T01H55M30S should SLR fix that
+					if sc.Duration == 0 {
+						duration := 0
+						if gjson.Get(JsonMetadata, "duration").Exists() {
+							tmpParts := durationRegExForScenePage.FindStringSubmatch(gjson.Get(JsonMetadata, "duration").String())
+							if len(tmpParts[1]) > 0 {
+								if h, err := strconv.Atoi(tmpParts[1]); err == nil {
+									hrs := h
+									if m, err := strconv.Atoi(tmpParts[2]); err == nil {
+										mins := m
+										duration = (hrs * 60) + mins
+									}
+								}
+							} else {
 								if m, err := strconv.Atoi(tmpParts[2]); err == nil {
-									mins := m
-									duration = (hrs * 60) + mins
+									duration = m
 								}
 							}
-						} else {
-							if m, err := strconv.Atoi(tmpParts[2]); err == nil {
-								duration = m
-							}
+							sc.Duration = duration
 						}
-						sc.Duration = duration
 					}
+
+					// Filenames
+					appendFilenames(&sc, siteID, filenameRegEx, videotype, FB360)
 				}
 
-				// Filenames
-				// Only shown for logged in users so need to generate them
-				// Format: SLR_siteID_Title_<Resolutions>_SceneID_<LR/TB>_<180/360>.mp4
-				resolutions := []string{"_6400p_", "_4000p_", "_3840p_", "_3360p_", "_3160p_", "_3072p_", "_2900p_", "_2880p_", "_2700p_", "_2650p_", "_2160p_", "_1920p_", "_1440p_", "_1080p_", "_original_"}
-				baseName := "SLR_" + siteID + "_" + filenameRegEx.ReplaceAllString(sc.Title, "_")
-				switch videotype {
-				case "360°": // Sadly can't determine if TB or MONO so have to add both
-					for i := range resolutions {
-						sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MONO_360.mp4")
-						sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_TB_360.mp4")
-					}
-				case "Fisheye": // 200° videos named with MKX200
-					for i := range resolutions {
-						sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX200.mp4")
-						sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX220.mp4")
-						sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_RF52.mp4")
-						sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_FISHEYE190.mp4")
-						sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_VRCA220.mp4")
-					}
-				default: // Assuming everything else is 180 and LR, yet to find a TB_180
-					for i := range resolutions {
-						sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_LR_180.mp4")
-					}
-				}
-				if FB360 != "" {
-					sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_LR_180"+FB360)
-					sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_MKX200"+FB360)
-					sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_MKX220"+FB360)
-					sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_RF52"+FB360)
-					sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"FISHEYE190"+FB360)
-					sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_VRCA220"+FB360)
-					sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_MONO_360"+FB360)
-					sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_TB_360"+FB360)
-				}
-			}
+			})
+		} else { // isTransScene
+			e.ForEach("script[type=\"text/javascript\"]", func(id int, e *colly.HTMLElement) {
+				var re = regexp.MustCompile("videoData:\\s*(.*}),")
+				r := re.FindStringSubmatch(e.Text)
+				if len(r) > 0 {
+					JsonMetadata := strings.TrimSpace(r[1])
 
-		})
+					// Title
+					sc.Title = gjson.Get(JsonMetadata, "title").String()
+
+					// Duration - Not Available
+
+					// Filenames
+					// trans videos don't appear to follow video type naming conventions
+					appendFilenames(&sc, siteID, filenameRegEx, "", "")
+				}
+			})
+
+			// Date
+			e.ForEach("time[data-qa=\"page-scene-studio-date\"]", func(id int, e *colly.HTMLElement) {
+				sc.Released = e.Attr("datetime")
+			})
+
+			// Cast
+			e.ForEach("a[data-qa=\"scene-model-list-item-name\"]", func(id int, e *colly.HTMLElement) {
+				sc.Cast = append(sc.Cast, strings.TrimSpace(e.Text))
+			})
+		}
 
 		out <- sc
 	})
@@ -201,7 +202,11 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 
 	siteCollector.OnHTML(`div.c-grid--scenes article`, func(e *colly.HTMLElement) {
 		sceneURL := e.Request.AbsoluteURL(e.ChildAttr("a[data-qa=scenes-grid-item-link-title]", "href"))
-		if strings.Contains(sceneURL, "scene") {
+
+		isStraightScene := strings.Contains(sceneURL, "/scene")
+		isTransScene := strings.Contains(sceneURL, "/trans")
+
+		if isStraightScene || isTransScene {
 			// If scene exist in database, there's no need to scrape
 			if !funk.ContainsString(knownScenes, sceneURL) {
 				durationText := e.ChildText("div.c-grid-ratio-bottom.u-z--two")
@@ -214,12 +219,13 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 				}
 				ctx := colly.NewContext()
 				ctx.Put("duration", duration)
+				ctx.Put("isTransScene", isTransScene)
 				sceneCollector.Request("GET", sceneURL, nil, ctx, nil)
 			}
 		}
 	})
 
-	siteCollector.Visit("https://www.sexlikereal.com/studios/" + scraperID + "?sort=most_recent")
+	siteCollector.Visit(siteURL + "?sort=most_recent")
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -228,10 +234,52 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 	return nil
 }
 
-func addSLRScraper(id string, name string, company string, avatarURL string) {
+func appendFilenames(sc *models.ScrapedScene, siteID string, filenameRegEx *regexp.Regexp, videotype string, FB360 string) {
+	// Only shown for logged in users so need to generate them
+	// Format: SLR_siteID_Title_<Resolutions>_SceneID_<LR/TB>_<180/360>.mp4
+	resolutions := []string{"_6400p_", "_4000p_", "_3840p_", "_3360p_", "_3160p_", "_3072p_", "_2900p_", "_2880p_", "_2700p_", "_2650p_", "_2160p_", "_1920p_", "_1440p_", "_1080p_", "_original_"}
+	baseName := "SLR_" + strings.TrimSuffix(siteID, " (SLR)") + "_" + filenameRegEx.ReplaceAllString(sc.Title, "_")
+	switch videotype {
+	case "360°": // Sadly can't determine if TB or MONO so have to add both
+		for i := range resolutions {
+			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MONO_360.mp4")
+			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_TB_360.mp4")
+		}
+	case "Fisheye": // 200° videos named with MKX200
+		for i := range resolutions {
+			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX200.mp4")
+			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX220.mp4")
+			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_RF52.mp4")
+			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_FISHEYE190.mp4")
+			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_VRCA220.mp4")
+		}
+	default: // Assuming everything else is 180 and LR, yet to find a TB_180
+		for i := range resolutions {
+			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_LR_180.mp4")
+		}
+	}
+	if FB360 != "" {
+		sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_LR_180"+FB360)
+		sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_MKX200"+FB360)
+		sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_MKX220"+FB360)
+		sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_RF52"+FB360)
+		sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"FISHEYE190"+FB360)
+		sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_VRCA220"+FB360)
+		sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_MONO_360"+FB360)
+		sc.Filenames = append(sc.Filenames, baseName+"_original_"+sc.SiteID+"_TB_360"+FB360)
+	}
+}
+
+func addSLRScraper(id string, name string, company string, avatarURL string, custom bool, siteURL string) {
 	suffixedName := name
-	if company != "SexLikeReal" {
-		suffixedName += " (SLR)"
+	siteNameSuffix := name
+	if custom {
+		suffixedName += " (Custom SLR)"
+		siteNameSuffix += " (SLR)"
+	} else {
+		if company != "SexLikeReal" {
+			suffixedName += " (SLR)"
+		}
 	}
 
 	if avatarURL == "" {
@@ -239,114 +287,18 @@ func addSLRScraper(id string, name string, company string, avatarURL string) {
 	}
 
 	registerScraper(id, suffixedName, avatarURL, func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
-		return SexLikeReal(wg, updateSite, knownScenes, out, id, name, company)
+		return SexLikeReal(wg, updateSite, knownScenes, out, id, siteNameSuffix, company, siteURL)
 	})
 }
 
 func init() {
-	addSLRScraper("slr-originals", "SLR Originals", "SexLikeReal", "https://www.sexlikereal.com/s/refactor/images/favicons/android-icon-192x192.png")
-	addSLRScraper("slr-originals-bts", "SLR Originals BTS", "SexLikeReal", "https://www.sexlikereal.com/s/refactor/images/favicons/android-icon-192x192.png")
-	addSLRScraper("slr-labs", "SLR Labs", "SexLikeReal", "https://www.sexlikereal.com/s/refactor/images/favicons/android-icon-192x192.png")
-	addSLRScraper("slr-jav-originals", "SLR JAV Originals", "SexLikeReal", "https://www.sexlikereal.com/s/refactor/images/favicons/android-icon-192x192.png")
+	var scrapers config.ScraperList
+	scrapers.Load()
+	for _, scraper := range scrapers.XbvrScrapers.SlrScrapers {
+		addSLRScraper(scraper.ID, scraper.Name, scraper.Company, scraper.AvatarUrl, false, scraper.URL)
+	}
+	for _, scraper := range scrapers.CustomScrapers.SlrScrapers {
+		addSLRScraper(scraper.ID, scraper.Name, scraper.Company, scraper.AvatarUrl, true, scraper.URL)
+	}
 
-	addSLRScraper("ad4x", "AD4X", "AD4X", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/230/logo_crop_1606755231.png")
-	addSLRScraper("altporn4u-vr", "AltPorn4uVR", "AltPorn4uVR", "https://www.altporn4u.com/wp-content/uploads/2020/08/altporn4u-150x150.jpg")
-	addSLRScraper("amateurcouplesvr", "AmateurCouplesVR", "AmateurCouplesVR", "https://www.sexlikereal.com/s/images/content/sexlikereal.png")
-	addSLRScraper("amateurvr3d", "AmateurVR3D", "AmateurVR3D", "")
-	addSLRScraper("amorevr", "AmoreVR", "AmoreVR", "")
-	addSLRScraper("anal-delight", "Anal Delight", "AnalDelight", "https://mcdn.vrporn.com/files/20200907184611/AnalDelight_Logo.jpg")
-	addSLRScraper("astrodomina", "AstroDomina", "AstroDomina", "")
-	addSLRScraper("babykxtten", "Babykxtten", "Babykxtten", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/321/logo_crop_1624979737.png")
-	addSLRScraper("blondehexe", "BlondeHexe", "BlondeHexe", "")
-	addSLRScraper("blush-erotica", "Blush Erotica", "Blush Erotica", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/385/logo_crop_1649724830.png")
-	addSLRScraper("bravomodelsmedia", "BravoModelsMedia", "Bravo Models", "https://mcdn.vrporn.com/files/20181015142403/ohNFa81Q_400x400.png")
-	addSLRScraper("burningangelvr", "BurningAngelVR", "BurningAngelVR", "https://mcdn.vrporn.com/files/20170830191746/burningangel-icon-vr-porn-studio-vrporn.com-virtual-reality.png")
-	addSLRScraper("casanova", "CasanovA", "CasanovA", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/184/logo_crop_1606868350.png")
-	addSLRScraper("covert-japan", "CovertJapan", "CovertJapan", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/221/logo_crop_1607605022.png")
-	addSLRScraper("cumtoon", "Cumtoon", "Cumtoon", "https://www.sexlikereal.com/s/images/content/sexlikereal.png")
-	addSLRScraper("cuties-vr", "Cuties VR", "Cuties VR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/406/logo_crop_1658768706.png")
-	addSLRScraper("dandy", "DANDY", "DANDY", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/355/logo_crop_1634611924.png")
-	addSLRScraper("ddfnetworkvr", "DDFNetworkVR", "DDFNetworkVR", "http://pbs.twimg.com/profile_images/1083417183722434560/Ur5xIhqG_200x200.jpg")
-	addSLRScraper("deepinsex", "DeepInSex", "DeepInSex", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/266/logo_crop_1610126420.png")
-	addSLRScraper("deviantsvr", "DeviantsVR", "DeviantsVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/351/logo_crop_1638539790.png")
-	addSLRScraper("ellielouisevr", "EllieLouiseVR", "EllieLouiseVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/265/logo_crop_1607603680.png")
-	addSLRScraper("emilybloom", "EmilyBloom", "Emily Bloom", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/42/logo_crop_1608166932.png")
-	addSLRScraper("erotic-sinners", "Erotic Sinners", "Erotic Sinners", "")
-	addSLRScraper("fatp", "FATP", "FATP", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/382/logo_crop_1648196512.png")
-	addSLRScraper("footsiebay", "Footsiebay", "Footsiebay", "")
-	addSLRScraper("fuckpassvr", "FuckPassVR", "FuckPassVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/352/logo_crop_1635153994.png")
-	addSLRScraper("grannies-vr", "GranniesVR", "GranniesVR", "https://mcdn.vrporn.com/files/20180222024100/itsmorti-logo-vr-porn-studio-vrporn.com-virtual-reality.jpg")
-	addSLRScraper("heathering", "Heathering", "Heathering", "")
-	addSLRScraper("hentaivr", "HentaiVR", "HentaiVR", "https://pbs.twimg.com/profile_images/1394712735854874632/ULktf61I_400x400.jpg")
-	addSLRScraper("herfirstvr", "HerFirstVR", "HerFirstVR", "https://www.sexlikereal.com/s/refactor/images/favicons/android-icon-192x192.png")
-	addSLRScraper("holivr", "HoliVR", "HoliVR", "")
-	addSLRScraper("hookfer", "Hookfer", "Hookfer", "https://mcdn.vrporn.com/files/20201116170637/400x400-Hookfer-logo.jpg")
-	addSLRScraper("istripper", "iStripper", "TotemCore Ltd", "https://www.istripper.com/favicons/istripper/apple-icon-120x120.png")
-	addSLRScraper("jackandjillvr", "JackandJillVR", "JackandJillVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/367/logo_crop_1645997567.png")
-	addSLRScraper("jimmydraws", "JimmyDraws", "Jimmy Draws", "https://mcdn.vrporn.com/files/20190821145930/iLPJW6J7_400x400.png")
-	addSLRScraper("justvr", "JustVR", "JustVR", "https://mcdn.vrporn.com/files/20181023121629/logo.jpg")
-	addSLRScraper("jvrporn", "JVRPorn", "JVRPorn", "https://mcdn.vrporn.com/files/20170710084815/jvrporn-vr-porn-studio-vrporn.com-virtual-reality.png")
-	addSLRScraper("kinkygirlsberlin", "KinkyGirlsBerlin", "KinkyGirlsBerlin", "https://mcdn.vrporn.com/files/20211010073751/KinkyGirlsBerlin-logo-400x400.jpg")
-	addSLRScraper("kmpvr", "KMPVR", "KMPVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/209/logo_crop_1606869200.png")
-	addSLRScraper("koalavr", "KoalaVR", "KoalaVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/189/logo_crop_1606868385.png")
-	addSLRScraper("leninacrowne", "LeninaCrowne", "Terrible", "https://mcdn.vrporn.com/files/20190711135807/terrible_logo-e1562878668857_400x400_acf_cropped.jpg")
-	addSLRScraper("lezvr", "LezVR", "LezVR", "")
-	addSLRScraper("lustreality", "LustReality", "LustReality", "https://mcdn.vrporn.com/files/20200316102952/lustreality_logo2.png")
-	addSLRScraper("lustyvr", "LustyVR", "LustyVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/371/logo_crop_1644057581.png")
-	addSLRScraper("manny-s", "Manny_S", "Manny_S", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/428/logo_crop_1663700071.png")
-	addSLRScraper("marrionvr", "MarrionVR", "MarrionVR", "https://www.sexlikereal.com/s/images/content/sexlikereal.png")
-	addSLRScraper("maturesvr", "MaturesVR", "MaturesVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/314/logo_crop_1620737406.png")
-	addSLRScraper("mmm100", "MMM100", "MMM100", "https://mmm100.com/MMM100.png")
-	addSLRScraper("mongercash", "AsiansexdiaryVR", "AsiansexdiaryVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/219/logo_crop_1628500033.png")
-	addSLRScraper("mugur-porn-vr", "Mugur Porn VR", "MugurPornVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/375/logo_crop_1649424076.png")
-	addSLRScraper("mutiny-vr", "Mutiny VR", "Mutiny VR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/401/logo_crop_1656550572.png")
-	addSLRScraper("net69vr", "Net69VR", "Net69VR", "")
-	addSLRScraper("no2studiovr", "No2StudioVR", "No2StudioVR", "https://mcdn.vrporn.com/files/20201021145654/No2StudioVR_400x400-1.jpg")
-	addSLRScraper("noir", "Noir", "Noir", "https://mcdn.vrporn.com/files/20220624124749/Noir-Logo-400x400.jpg")
-	addSLRScraper("only3xvr", "Only3xVR", "Only3xVR", "https://mcdn.vrporn.com/files/20190821140339/only3xvr-profile-pic.jpg")
-	addSLRScraper("onlytease", "OnlyTease", "OT Publishing Ltd", "https://www.onlytease.com/assets/img/favicons/ot/apple-touch-icon.png")
-	addSLRScraper("peeping-thom", "Peeping Thom", "Peeping Thom", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/303/logo_crop_1619656190.png")
-	addSLRScraper("pervrt", "perVRt", "Terrible", "https://mcdn.vrporn.com/files/20181218151630/pervrt-logo.jpg")
-	addSLRScraper("petersmax", "PetersMAX", "PetersMAX", "")
-	addSLRScraper("pip-vr", "PIP VR", "PIP VR", "https://www.sexlikereal.com/s/images/content/sexlikereal.png")
-	addSLRScraper("plushiesvr", "PlushiesVR", "PlushiesVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/122/logo_crop_1615877579.png")
-	addSLRScraper("pornbcn", "Pornbcn", "Pornbcn", "https://mcdn.vrporn.com/files/20190923110340/CHANNEL-LOGO-2.jpg")
-	addSLRScraper("povcentralvr", "POVcentralVR", "POV Central", "https://mcdn.vrporn.com/files/20191125091909/POVCentralLogo.jpg")
-	addSLRScraper("ps-porn", "PS-Porn", "Paula Shy", "https://mcdn.vrporn.com/files/20201221090642/PS-Porn-400x400.jpg")
-	addSLRScraper("pvrstudio", "PVRStudio", "PVRStudio", "https://pvr.fun/uploads/2019/10/08/084230gbctdepe7kovu4hs.jpg")
-	addSLRScraper("realhotvr", "RealHotVR", "RealHotVR", "https://images.povr.com/assets/logos/channels/0/3/3835/200.svg")
-	addSLRScraper("screwboxvr", "ScrewBoxVR", "ScrewBox", "https://pbs.twimg.com/profile_images/1137432770936918016/ycL3ag5c_200x200.png")
-	addSLRScraper("sodcreate", "SodCreate", "SodCreate", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/216/logo_crop_1606869217.png")
-	addSLRScraper("squeeze-vr", "SqueezeVR", "SqueezeVR", "https://mcdn.vrporn.com/files/20210322150700/squeezevr_logo.png")
-	addSLRScraper("stockingsvr", "StockingsVR", "StockingsVR", "https://mcdn.vrporn.com/files/20171107092330/stockingsvr_logo_vr_porn_studio_vrporn.com_virtual_reality1-1.png")
-	addSLRScraper("strictlyglamourvr", "StrictlyGlamourVR", "StrictlyGlamourVR", "")
-	addSLRScraper("stripzvr", "StripzVR", "N1ck Inc.", "https://www.stripzvr.com/wp-content/uploads/2018/09/cropped-favicon-192x192.jpg")
-	addSLRScraper("suckmevr", "SuckMeVR", "SuckMeVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/403/logo_crop_1657112082.png")
-	addSLRScraper("swallowbay", "SwallowBay", "SwallowBay", "https://mcdn.vrporn.com/files/20210330092926/swallowbay-400x400.jpg")
-	addSLRScraper("sweetlonglips", "Sweetlonglips", "Sweetlonglips", "https://mcdn.vrporn.com/files/20200117105304/SLLVRlogo.png")
-	addSLRScraper("taboo-vr-porn", "Taboo VR Porn", "Taboo VR Porn", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/354/logo_crop_1643894389.png")
-	addSLRScraper("tadpolexxxstudio", "TadPoleXXXStudio", "TadPoleXXXStudio", "https://mcdn.vrporn.com/files/20190928101126/tadpolexxx-logo-vr-porn-studio-vrporn.com-virtual-reality.png")
-	addSLRScraper("thatrandomeditor", "ThatRandomEditor", "ThatRandomEditor", "")
-	addSLRScraper("tmavr", "TMAVR", "TMAVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/207/logo_crop_1606869169.png")
-	addSLRScraper("v1vr", "V1VR", "V1VR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/195/logo_crop_1606868432.png")
-	addSLRScraper("virtualpee", "VirtualPee", "VirtualPee", "https://mcdn.vrporn.com/files/20180317104121/virtualpeeop-square-banner.jpg")
-	addSLRScraper("virtualxporn", "VirtualXPorn", "VirtualXPorn", "https://www.virtualxporn.com/tour/custom_assets/favicons/android-chrome-192x192.png")
-	addSLRScraper("vr-fan-service", "VRFanService", "VRFanService", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/153/logo_crop_1619422412.png")
-	addSLRScraper("vr-pornnow", "VR Pornnow", "VR Pornnow", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/378/logo_crop_1647344034.png")
-	addSLRScraper("vredging", "VRedging", "VRedging", "https://mcdn.vrporn.com/files/20200630081500/VRedging_LOGO_v1-400x400.jpg")
-	addSLRScraper("vrextasy", "VReXtasy", "VReXtasy", "https://www.sexlikereal.com/s/refactor/images/favicons/android-icon-192x192.png")
-	addSLRScraper("vrfirsttimer", "VRFirstTimer", "VRFirstTimer", "https://mcdn.vrporn.com/files/20200511115233/VRFirstTimers_Logo.jpg")
-	addSLRScraper("vrixxens", "VRixxens", "VRixxens", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/332/logo_crop_1663682599.png")
-	addSLRScraper("vrlab9division", "VRlab9division", "VRlab9division", "")
-	addSLRScraper("vrmodels", "VRModels", "VRMmodels", "")
-	addSLRScraper("vroomed", "VRoomed", "VRoomed", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/380/logo_crop_1647990015.png")
-	addSLRScraper("vrpfilms", "VRPFilms", "VRPFilms", "https://vrpfilms.com/storage/settings/March2021/Z0krYIQBMwSJ4R1eCnv1.png")
-	addSLRScraper("vrpornjack", "VRPornJack", "VRPornJack", "https://mcdn.vrporn.com/files/20210330121852/VRPORNJACK_Logo-400x400.png")
-	addSLRScraper("vrpussyvision", "VRpussyVision", "VRpussyVision", "https://mcdn.vrporn.com/files/20180313160830/vrpussyvision-square-banner.png")
-	addSLRScraper("vrsexperts", "VRSexperts", "VRSexperts", "https://mcdn.vrporn.com/files/20190812141431/vrsexpertslogo2.jpg")
-	addSLRScraper("vrsolos", "VRSolos", "VRSolos", "https://mcdn.vrporn.com/files/20191226092954/VRSolos_Logo.jpg")
-	addSLRScraper("vrstars", "VRStars", "VRStars", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/271/logo_crop_1648490662.png")
-	addSLRScraper("vrvids", "VRVids", "VRVids", "https://www.sexlikereal.com/s/images/content/sexlikereal.png")
-	addSLRScraper("waapvr", "WAAPVR", "WAAPVR", "https://cdn-vr.sexlikereal.com/images/studio_creatives/logotypes/1/117/logo_crop_1606868278.png")
-	addSLRScraper("xvirtual", "xVirtual", "xVirtual", "")
 }

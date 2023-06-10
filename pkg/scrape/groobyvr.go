@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/v2"
 	"github.com/mozillazg/go-slugify"
 	"github.com/nleeper/goment"
 	"github.com/thoas/go-funk"
@@ -27,6 +27,7 @@ func GroobyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
+		sc.ScraperID = scraperID
 		sc.SceneType = "VR"
 		sc.Studio = "GroobyVR"
 		sc.Site = siteID
@@ -41,7 +42,7 @@ func GroobyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 		})
 
 		// Cover URL
-		coverURL := "https:" + e.Request.AbsoluteURL(e.ChildAttr("div.player-thumb img", "src"))
+		coverURL := e.Request.AbsoluteURL(e.ChildAttr("div.player-thumb img", "src"))
 		sc.Covers = append(sc.Covers, coverURL)
 
 		// Scene ID - get from URL
@@ -104,7 +105,7 @@ func GroobyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 	})
 
 	siteCollector.OnHTML(`div.videohere a`, func(e *colly.HTMLElement) {
-		sceneURL := "https:" + e.Request.AbsoluteURL(e.Attr("href"))
+		sceneURL := e.Request.AbsoluteURL(e.Attr("href"))
 
 		if !funk.ContainsString(knownScenes, sceneURL) {
 			sceneCollector.Visit(sceneURL)
@@ -126,5 +127,5 @@ func GroobyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 }
 
 func init() {
-	registerScraper("groobyvr", "GroobyVR", "https://pbs.twimg.com/profile_images/981677396695773184/-kKaWumY_200x200.jpg", GroobyVR)
+	registerScraper("groobyvr", "GroobyVR", "https://www.groobyvr.com/tour/custom_assets/favicon/apple-touch-icon.png", GroobyVR)
 }

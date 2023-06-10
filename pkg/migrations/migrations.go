@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/jinzhu/gorm"
 	"github.com/markphelps/optional"
 	"github.com/mozillazg/go-slugify"
@@ -22,7 +23,6 @@ import (
 	"github.com/xbapps/xbvr/pkg/scrape"
 	"github.com/xbapps/xbvr/pkg/tasks"
 	"gopkg.in/gormigrate.v1"
-	"gopkg.in/resty.v1"
 )
 
 type RequestSceneList struct {
@@ -535,6 +535,59 @@ func Migrate() {
 				return tx.AutoMigrate(File{}).Error
 			},
 		},
+		{
+			ID: "0053-add-legacy-scene-id-to-save-old-scene_ids",
+			Migrate: func(tx *gorm.DB) error {
+				type Scene struct {
+					LegacySceneID string `json:"legacy_scene_id" xbvrbackup:"legacy_scene_id"`
+					ScraperId     string `json:"scraper_id" xbvrbackup:"scraper_id"`
+				}
+				return tx.AutoMigrate(Scene{}).Error
+			},
+		},
+		{
+			ID: "0056-Subscribed-Fields",
+			Migrate: func(tx *gorm.DB) error {
+				type Site struct {
+					Subscribed bool `json:"subscribed" xbvrbackup:"subscribed"`
+				}
+				type Scene struct {
+					IsSubscribed bool `json:"is_subscribed" gorm:"default:false"`
+				}
+				err := tx.AutoMigrate(Site{}).Error
+				if err == nil {
+					err = tx.AutoMigrate(Scene{}).Error
+				}
+				return err
+			},
+		},
+		{
+			ID: "0057-Tag-groups",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&models.TagGroup{}).Error
+			},
+		},
+		{
+			ID: "0058-Change-NewValue-Column-To-Text",
+			Migrate: func(tx *gorm.DB) error {
+				var err error
+				switch tx.Dialect().GetName() {
+				case "sqlite3":
+					err = tx.Model(&models.Action{}).Exec("ALTER TABLE actions RENAME TO actions_old2").Error
+				case "mysql":
+					err = tx.Model(&models.Action{}).Exec("RENAME TABLE actions TO actions_old2").Error
+				}
+				if err != nil {
+					return err
+				}
+				tx.AutoMigrate(&models.Action{})
+				err = tx.Model(&models.Action{}).Exec("INSERT INTO actions SELECT * FROM actions_old2").Error
+				if err != nil {
+					return err
+				}
+				return tx.Exec("DROP TABLE IF EXISTS actions_old2").Error
+			},
+		},
 
 		// ===============================================================================================
 		// Put DB Schema migrations above this line and migrations that rely on the updated schema below
@@ -611,7 +664,8 @@ func Migrate() {
 						mapping = map[string]string{}
 						queryParams := "page=1&type=videos&sort=latest&show_custom_video=1&bonus-video=1&limit=1000"
 						url := fmt.Sprintf("https://content.%s.com/api/content/v1/videos?%s", strings.ToLower(site), queryParams)
-						r, err := resty.R().SetHeader("User-Agent", scrape.UserAgent).Get(url)
+
+						r, err := resty.New().R().SetHeader("User-Agent", scrape.UserAgent).Get(url)
 						if err != nil {
 							return "", err
 						}
@@ -714,7 +768,7 @@ func Migrate() {
 						mapping = map[string]string{}
 						queryParams := "page=1&type=videos&sort=latest&show_custom_video=1&bonus-video=1&limit=1000"
 						url := fmt.Sprintf("https://content.%s.com/api/content/v1/videos?%s", strings.ToLower(site), queryParams)
-						r, err := resty.R().SetHeader("User-Agent", scrape.UserAgent).Get(url)
+						r, err := resty.New().R().SetHeader("User-Agent", scrape.UserAgent).Get(url)
 						if err != nil {
 							return "", err
 						}
@@ -1214,6 +1268,211 @@ func Migrate() {
 					}
 				}
 				return nil
+			},
+		},
+		{
+			ID: "0054-Update-New-Scraper-Id-in-Scene-Record",
+			Migrate: func(tx *gorm.DB) error {
+				var sites []models.Site
+				tx.Model(&sites).Find(&sites)
+
+				// create a scene type without deleted_at and updated_at columns
+				// this means deleted records are updated as well and does not change the updated_at column
+				type match struct {
+					siteId         string
+					sceneIdPattern string
+				}
+				var manualSites []match
+				manualSites = append(manualSites, match{"tonightsgirlfriend", "tonight-s-girlfriend-vr%"})
+				manualSites = append(manualSites, match{"littlecaprice", "little-caprice-dreams%"})
+				manualSites = append(manualSites, match{"slr-originals-bts", "slr-originals-bts%"})
+				manualSites = append(manualSites, match{"taboo-vr-porn", "taboo-vr-porn%"})
+
+				var returnErr error
+				for _, site := range manualSites {
+					common.Log.Infof("Setting scraper_id for %s", site.siteId)
+					err := tx.Model(models.Scene{}).Where("scene_id like ? and scraper_id is null", site.sceneIdPattern).Update("scraper_id", strings.ToLower(site.siteId)).Error
+					if err != nil {
+						returnErr = err
+					}
+				}
+				for _, site := range sites {
+					common.Log.Infof("Setting scraper_id for %s", site.Name)
+					err := tx.Model(&models.Scene{}).Where("replace(scene_id,'-','') like ? and scraper_id is null", strings.Replace(site.ID, "-", "", -1)+"%").Update("scraper_id", strings.ToLower(site.ID)).Error
+					if err != nil {
+						returnErr = err
+					}
+				}
+
+				return returnErr
+			},
+		},
+		{
+			ID: "0055-update-aggregator-scene-ids",
+			Migrate: func(tx *gorm.DB) error {
+				type SiteChange struct {
+					SiteId    string
+					NewPrefix string
+				}
+				//backup bundle
+				common.Log.Infof("Creating pre-migration backup, please waiit, backups can take some time on a system with a large number of scenes ")
+				tasks.BackupBundle(true, false, true, true, true, true, true, true, true, true, true, true, "0", "xbvr-premigration-bundle.json", "2")
+				common.Log.Infof("Go to download/xbvr-premigration-bundle.json, or http://xxx.xxx.xxx.xxx:9999/download/xbvr-premigration-bundle.json if you need access to the backup")
+				var sites []models.Site
+				officalSiteChanges := []SiteChange{
+					{"povr-originals", "povr"}, {"wankzvr", "povr"}, {"milfvr", "povr"}, {"herpovr", "povr"}, {"brasilvr", "povr"}, {"tranzvr", "povr"},
+					{"slr-originals", "slr"}, {"slr-labs", "slr"}, {"slr-jav-originals", "slr"}, {"amateurcouplesvr", "slr"}, {"amateurvr3d", "slr"}, {"amorevr", "slr"}, {"astrodomina", "slr"}, {"blondehexe", "slr"}, {"blush-erotica", "slr"}, {"bravomodelsmedia", "slr"}, {"casanova", "slr"}, {"covert-japan", "slr"}, {"cuties-vr", "slr"}, {"dandy", "slr"}, {"deepinsex", "slr"}, {"deviantsvr", "slr"}, {"ellielouisevr", "slr"}, {"emilybloom", "slr"}, {"erotic-sinners", "slr"}, {"fatp", "slr"}, {"footsiebay", "slr"}, {"fuckpassvr", "slr"}, {"heathering", "slr"}, {"istripper", "slr"}, {"jackandjillvr", "slr"}, {"jimmydraws", "slr"}, {"kinkygirlsberlin", "slr"}, {"kmpvr", "slr"}, {"koalavr", "slr"}, {"lustreality", "slr"}, {"lustyvr", "slr"}, {"manny-s", "slr"}, {"mongercash", "slr"}, {"mugur-porn-vr", "slr"}, {"mutiny-vr", "slr"}, {"no2studiovr", "slr"}, {"noir", "slr"}, {"only3xvr", "slr"}, {"onlytease", "slr"}, {"peeping-thom", "slr"}, {"pervrt", "slr"}, {"petersmax", "slr"}, {"pip-vr", "slr"}, {"plushiesvr", "slr"}, {"povcentralvr", "slr"}, {"ps-porn", "slr"}, {"realhotvr", "slr"}, {"sodcreate", "slr"}, {"squeeze-vr", "slr"}, {"stockingsvr", "slr"}, {"strictlyglamourvr", "slr"}, {"stripzvr", "slr"}, {"suckmevr", "slr"}, {"swallowbay", "slr"}, {"sweetlonglips", "slr"}, {"taboo-vr-porn", "slr"}, {"tadpolexxxstudio", "slr"}, {"thatrandomeditor", "slr"}, {"tmavr", "slr"}, {"v1vr", "slr"}, {"virtualxporn", "slr"}, {"vr-pornnow", "slr"}, {"vredging", "slr"}, {"vrixxens", "slr"}, {"vrlab9division", "slr"}, {"vrmodels", "slr"}, {"vroomed", "slr"}, {"vrpfilms", "slr"}, {"vrpornjack", "slr"}, {"vrsexperts", "slr"}, {"vrsolos", "slr"}, {"vrstars", "slr"}, {"vrvids", "slr"},
+					{"vrphub-vrhush", "vrphub"}, {"vrphub-stripzvr", "vrphub"},
+					{"randysroadstop", "vrporn"}, {"realteensvr", "vrporn"}, {"vrclubz", "vrporn"},
+				}
+
+				isOfficalSite := func(siteList []SiteChange, siteID string) bool {
+					for _, s := range siteList {
+						if s.SiteId == siteID {
+							return true
+						}
+					}
+					return false
+				}
+
+				// add aggregator sites not already in officalSiteChanges
+				unofficalSiteChanges := []SiteChange{{"slr-originals-bts", "slr"}}
+				db.Where("name like '%)'").Find(&sites)
+				for _, site := range sites {
+					if !isOfficalSite(officalSiteChanges, site.ID) {
+						// get (SLR), (VRPORN), etc
+						re := regexp.MustCompile(`\(([^)]+)\)`)
+						result := re.FindStringSubmatch(site.Name)
+						newSuffix := ""
+						if len(result) > 1 {
+							switch result[0] {
+							case "(POVR)":
+								newSuffix = "povr"
+							case "(SLR)":
+								newSuffix = "slr"
+							case "(VRP Hub)":
+								newSuffix = "vrphub"
+							case "(VRPorn)":
+								newSuffix = "vrporn"
+							default:
+								common.Log.Warnf("Unknown aggregator site (%s)", site.Name)
+							}
+							unofficalSiteChanges = append(unofficalSiteChanges, SiteChange{site.ID, newSuffix})
+						} else {
+							common.Log.Warnf("Unknown aggregator site (%s)", site.Name)
+						}
+					}
+				}
+
+				for _, siteChange := range append(unofficalSiteChanges, officalSiteChanges...) {
+					common.Log.Infof("Migrating scene_ids for %s to %s", siteChange.SiteId, siteChange.NewPrefix)
+					sql := `update actions set scene_id = replace(scene_id, LOWER("` + siteChange.SiteId + `-"), "` + siteChange.NewPrefix + `-") where scene_id like "` + siteChange.SiteId + `-%"`
+					tx.Exec(sql)
+					sql = `update actions set scene_id = replace(replace(scene_id, '-',''), LOWER("` + siteChange.SiteId + `"), "` + siteChange.NewPrefix + `-") where scene_id not like "` + siteChange.NewPrefix + `-%" and scraper_id = "` + strings.ToLower(siteChange.SiteId) + `"`
+					tx.Exec(sql)
+					// set new scene_id
+					sql = `update scenes set legacy_scene_id=scene_id, scene_id = replace(scene_id, LOWER("` + siteChange.SiteId + `-"), "` + siteChange.NewPrefix + `-") where scene_id like "` + siteChange.SiteId + `-%"`
+					tx.Exec(sql)
+					sql = `update scenes set legacy_scene_id=scene_id, scene_id = replace(replace(scene_id, '-',''), LOWER("` + siteChange.SiteId + `"), "` + siteChange.NewPrefix + `-") where  scene_id not like "` + siteChange.NewPrefix + `-%" and scraper_id = "` + strings.ToLower(siteChange.SiteId) + `"`
+					tx.Exec(sql)
+				}
+
+				common.Log.Infof("Removing old sites")
+				for _, site := range unofficalSiteChanges {
+					// update scene scraper_id with new suffix, in case they are added back as a Custom site in scraper.json.  Needs_update to refresh new site name
+					sql := fmt.Sprintf(`update scenes set scraper_id="%s", needs_update = 1 where scraper_id = "%s"`, strings.ToLower(site.SiteId+"-"+site.NewPrefix), strings.ToLower(site.SiteId))
+					tx.Exec(sql)
+
+					// delete unoffical sites from site table
+					tx.Delete(&models.Site{ID: site.SiteId})
+				}
+
+				common.Log.Infof("Migrating Video Previews")
+				var scenes []models.Scene
+				tx.Where("legacy_scene_id is not null").Where(&models.Scene{HasVideoPreview: true}).Find(&scenes)
+				for _, scene := range scenes {
+					os.Rename(filepath.Join(common.VideoPreviewDir, fmt.Sprintf("%v.mp4", scene.LegacySceneID)), filepath.Join(common.VideoPreviewDir, fmt.Sprintf("%v.mp4", scene.SceneID)))
+				}
+
+				common.Log.Infof("Migration needs to Reindex scenes.. please wait")
+				tasks.SearchIndex()
+				common.Log.Infof("Reindex of scenes complete")
+				return nil
+			},
+		},
+		{
+			// Fixes the filenames of scenes for Custom SLR Sites, which have a (SLR) prefix enbedded in the filename
+			ID: "0057-fix-slr-filenames-for-custom-studios",
+			Migrate: func(tx *gorm.DB) error {
+				common.Log.Infof("Migration updating filenames for Custom SLR Sites")
+				var scenes []models.Scene
+				err := tx.Where("site like ?", "% (SLR)").Find(&scenes).Error
+				if err != nil {
+					return err
+				}
+
+				for _, scene := range scenes {
+					scene.FilenamesArr = strings.ReplaceAll(scene.FilenamesArr, "SLR_"+scene.Site, "SLR_"+strings.TrimSuffix(scene.Site, " (SLR)"))
+					err = tx.Save(&scene).Error
+					if err != nil {
+						return err
+					}
+				}
+				common.Log.Infof("Migration update for Custom SLR Site filenames completed")
+				return nil
+			},
+		},
+		{
+			ID: "0058-add-scraper-id-to-vr-intimacy-scenes",
+			Migrate: func(tx *gorm.DB) error {
+				err := tx.Model(&models.Scene{}).Where("site = 'VR Intimacy'").Update("scraper_id", "czechvrintimacy").Error
+				if err != nil {
+					return err
+				}
+				return nil
+			},
+		},
+		{
+			ID: "0059-fix-czech-vr-scenes-scraper-id",
+			Migrate: func(tx *gorm.DB) error {
+				sites := []string{"Czech VR Casting", "Czech VR Fetish"}
+				for _, site := range sites {
+					scraperId := strings.ReplaceAll(strings.ToLower(site), " ", "")
+					err := tx.Model(&models.Scene{}).Where("site = ? and scraper_id = 'czechvr'", site).Update("scraper_id", scraperId).Error
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			// rebuild search indexes with new fields
+			ID: "0060-rebuild-new-indexes",
+			Migrate: func(d *gorm.DB) error {
+				os.RemoveAll(common.IndexDirV2)
+				os.MkdirAll(common.IndexDirV2, os.ModePerm)
+				// rebuild asynchronously, no need to hold up startup, blocking the UI
+				go func() {
+					tasks.SearchIndex()
+					tasks.CalculateCacheSizes()
+				}()
+				return nil
+			},
+		},
+		{
+			// rebuild search indexes with new fields
+			ID: "0061-fix-vrhush-vrallure-trailers",
+			Migrate: func(tx *gorm.DB) error {
+				sql := `update scenes set trailer_source = replace(trailer_source, 'deo-video source', 'web-vr-video-player source') where scraper_id in ('vrhush', 'vrallure')`
+				return tx.Exec(sql).Error
+			},
+		},
+		{
+			ID: "0062-fix-vrhush-trailers",
+			Migrate: func(tx *gorm.DB) error {
+				sql := `update scenes set trailer_source = replace(trailer_source, '"html_element":"web-vr-video-player"', '"html_element":"web-vr-video-player source"') where scene_id like 'vrhush%' and trailer_source like '%"html_element":"web-vr-video-player"%'`
+				return tx.Exec(sql).Error
 			},
 		},
 	})

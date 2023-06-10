@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/v2"
 	"github.com/mozillazg/go-slugify"
 	"github.com/nleeper/goment"
 	"github.com/thoas/go-funk"
@@ -27,6 +27,7 @@ func VRHush(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
+		sc.ScraperID = scraperID
 		sc.SceneType = "VR"
 		sc.Studio = "VRHush"
 		sc.Site = siteID
@@ -39,19 +40,15 @@ func VRHush(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 		sc.SiteID = strings.Replace(tmp2, "vrh", "", -1)
 		sc.SceneID = slugify.Slugify(sc.Site) + "-" + sc.SiteID
 
-		// Title
-		e.ForEach(`h1.latest-scene-title`, func(id int, e *colly.HTMLElement) {
-			sc.Title = strings.TrimSpace(e.Text)
-		})
-
-		// Regex for original resolution of both covers and gallery
+		// Regex for original resolution of gallery
 		reGetOriginal := regexp.MustCompile(`^(https?:\/\/b8h6h9v9\.ssl\.hwcdn\.net\/vrh\/)(?:largethumbs|hugethumbs|rollover_large|rollover_huge)(\/.+)-c\d{3,4}x\d{3,4}(\.\w{3,4})$`)
 
-		// Cover URLs
-		// note 'largethumbs' could be changed to 'hugethumbs' for HQ original but those are easily 5Mb+
-		e.ForEach(`deo-video`, func(id int, e *colly.HTMLElement) {
-			tmpParts := reGetOriginal.FindStringSubmatch(e.Request.AbsoluteURL(e.Attr("cover-image")))
-			sc.Covers = append(sc.Covers, tmpParts[1]+"largethumbs"+tmpParts[2]+tmpParts[3])
+		// Title / Cover
+		e.ForEach(`.latest-scene-title`, func(id int, e *colly.HTMLElement) {
+			sc.Title = strings.TrimSpace(e.Text)
+		})
+		e.ForEach(`web-vr-video-player`, func(id int, e *colly.HTMLElement) {
+			sc.Covers = append(sc.Covers, e.Request.AbsoluteURL(e.Attr("coverimage")))
 		})
 
 		// Gallery
@@ -90,7 +87,7 @@ func VRHush(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 
 		// trailer details
 		sc.TrailerType = "scrape_html"
-		params := models.TrailerScrape{SceneUrl: sc.HomepageURL, HtmlElement: "deo-video source", ContentPath: "src", QualityPath: "quality", ContentBaseUrl: "https:"}
+		params := models.TrailerScrape{SceneUrl: sc.HomepageURL, HtmlElement: "web-vr-video-player source", ContentPath: "src", QualityPath: "quality", ContentBaseUrl: "https:"}
 		strParams, _ := json.Marshal(params)
 		sc.TrailerSrc = string(strParams)
 
@@ -155,5 +152,5 @@ func VRHush(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 }
 
 func init() {
-	registerScraper("vrhush", "VRHush", "https://z5w6x5a4.ssl.hwcdn.net/sites/vrh/favicon/apple-touch-icon-180x180.png", VRHush)
+	registerScraper("vrhush", "VRHush", "https://cdn-nexpectation.secure.yourpornpartner.com/sites/vrh/favicon/apple-touch-icon-180x180.png", VRHush)
 }

@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	auth "github.com/abbot/go-http-auth"
-	"github.com/emicklei/go-restful"
-	restfulspec "github.com/emicklei/go-restful-openapi"
+	restfulspec "github.com/emicklei/go-restful-openapi/v2"
+	"github.com/emicklei/go-restful/v3"
 	"github.com/gammazero/nexus/v3/router"
 	"github.com/gammazero/nexus/v3/wamp"
 	"github.com/go-openapi/spec"
@@ -80,6 +80,7 @@ func StartServer(version, commit, branch, date string) {
 	restful.Add(api.HeresphereResource{}.WebService())
 	restful.Add(api.PlaylistResource{}.WebService())
 	restful.Add(api.AkaResource{}.WebService())
+	restful.Add(api.TagGroupResource{}.WebService())
 
 	restConfig := restfulspec.Config{
 		WebServices: restful.RegisteredWebServices(),
@@ -126,9 +127,12 @@ func StartServer(version, commit, branch, date string) {
 
 	// Imageproxy
 	r := mux.NewRouter()
-	p := imageproxy.NewProxy(nil, diskCache(filepath.Join(common.AppDir, "imageproxy")))
-	p.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.103 Safari/537.36"
-	r.PathPrefix("/img/").Handler(http.StripPrefix("/img", p))
+	p := imageproxy.NewProxy(NewForceCacheTransport(), diskCache(filepath.Join(common.AppDir, "imageproxy")))
+	p.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+	// If the client request has a cache-control header (such as 'no-cache'), pass them
+	// onto the imageproxy so that this can be respected.
+	p.PassRequestHeaders = append(p.PassRequestHeaders, "Cache-Control")
+	r.PathPrefix("/img/").Handler(ForceShortCacheHandler(http.StripPrefix("/img", p)))
 	hmp := NewHeatmapThumbnailProxy(p, diskCache(filepath.Join(common.AppDir, "heatmapthumbnailproxy")))
 	r.PathPrefix("/imghm/").Handler(http.StripPrefix("/imghm", hmp))
 	downloadhandler := DownloadHandler{}

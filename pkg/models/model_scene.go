@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/araddon/dateparse"
-	"github.com/avast/retry-go/v3"
+	"github.com/avast/retry-go/v4"
 	"github.com/jinzhu/gorm"
 	"github.com/markphelps/optional"
 	"github.com/xbapps/xbvr/pkg/common"
@@ -64,6 +64,7 @@ type Scene struct {
 	SceneID         string    `json:"scene_id" xbvrbackup:"scene_id"`
 	Title           string    `json:"title" sql:"type:varchar(1024);" xbvrbackup:"title"`
 	SceneType       string    `json:"scene_type" xbvrbackup:"scene_type"`
+	ScraperId       string    `json:"scraper_id" xbvrbackup:"scraper_id"`
 	Studio          string    `json:"studio" xbvrbackup:"studio"`
 	Site            string    `json:"site" xbvrbackup:"site"`
 	Tags            []Tag     `gorm:"many2many:scene_tags;" json:"tags" xbvrbackup:"tags"`
@@ -102,7 +103,9 @@ type Scene struct {
 	TrailerType   string `json:"trailer_type" xbvrbackup:"trailer_type"`
 	TrailerSource string `gorm:"size:1000" json:"trailer_source" xbvrbackup:"trailer_source"`
 	Trailerlist   bool   `json:"trailerlist" gorm:"default:false" xbvrbackup:"trailerlist"`
+	IsSubscribed  bool   `json:"is_subscribed" gorm:"default:false"`
 	IsHidden      bool   `json:"is_hidden" gorm:"default:false" xbvrbackup:"is_hidden"`
+	LegacySceneID string `json:"legacy_scene_id" xbvrbackup:"legacy_scene_id"`
 
 	Description string  `gorm:"-" json:"description" xbvrbackup:"-"`
 	Score       float64 `gorm:"-" json:"_score" xbvrbackup:"-"`
@@ -264,6 +267,16 @@ func (o *Scene) GetHSPFiles() ([]File, error) {
 	return files, nil
 }
 
+func (o *Scene) GetSubtitlesFiles() ([]File, error) {
+	db, _ := GetDB()
+	defer db.Close()
+
+	var files []File
+	db.Preload("Volume").Where("scene_id = ? AND type = ?", o.ID, "subtitles").Find(&files)
+
+	return files, nil
+}
+
 func (o *Scene) PreviewExists() bool {
 	if _, err := os.Stat(filepath.Join(common.VideoPreviewDir, fmt.Sprintf("%v.mp4", o.SceneID))); os.IsNotExist(err) {
 		return false
@@ -389,6 +402,7 @@ func SceneCreateUpdateFromExternal(db *gorm.DB, ext ScrapedScene) error {
 	o.NeedsUpdate = false
 	o.EditsApplied = false
 	o.SceneID = ext.SceneID
+	o.ScraperId = ext.ScraperID
 
 	if o.Title != ext.Title {
 		o.Title = ext.Title
@@ -460,6 +474,9 @@ func SceneCreateUpdateFromExternal(db *gorm.DB, ext ScrapedScene) error {
 		o.Images = string(imgTxt)
 	}
 
+	var site Site
+	db.Where("id = ?", o.ScraperId).FirstOrInit(&site)
+	o.IsSubscribed = site.Subscribed
 	SaveWithRetry(db, &o)
 
 	// Clean & Associate Tags
@@ -640,6 +657,12 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 			} else {
 				where = "scenes.id not in (select " + sceneAlias + ".id from scenes " + sceneAlias + " join files " + fileAlias + " on " + fileAlias + ".scene_id = " + sceneAlias + ".id and " + fileAlias + ".`type` = 'hsp' where " + sceneAlias + ".id=scenes.id group by " + sceneAlias + ".id)"
 			}
+		case "Has Subtitles File":
+			if truefalse {
+				where = "scenes.id in (select " + fileAlias + ".scene_id  from files " + fileAlias + " where " + fileAlias + ".scene_id = scenes.id and " + fileAlias + ".`type` = 'subtitles' group by " + fileAlias + ".scene_id having count(*) >0)"
+			} else {
+				where = "scenes.id not in (select " + sceneAlias + ".id from scenes " + sceneAlias + " join files " + fileAlias + " on " + fileAlias + ".scene_id = " + sceneAlias + ".id and " + fileAlias + ".`type` = 'subtitles' where " + sceneAlias + ".id=scenes.id group by " + sceneAlias + ".id)"
+			}
 		case "Has Rating":
 			if truefalse {
 				where = "star_rating > 0"
@@ -669,6 +692,12 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 				where = "trailerlist = 1"
 			} else {
 				where = "trailerlist = 0"
+			}
+		case "Has Subscription":
+			if truefalse {
+				where = "is_subscribed = 1"
+			} else {
+				where = "is_subscribed = 0"
 			}
 		case "Rating 0", "Rating .5", "Rating 1", "Rating 1.5", "Rating 2", "Rating 2.5", "Rating 3", "Rating 3.5", "Rating 4", "Rating 4.5", "Rating 5":
 			if truefalse {
@@ -829,7 +858,30 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 			} else {
 				where = "favourite = 0"
 			}
-
+		case "POVR Scraper":
+			if truefalse {
+				where = `scenes.scene_id like "povr-%"`
+			} else {
+				where = `scenes.scene_id not like "povr-%"`
+			}
+		case "SLR Scraper":
+			if truefalse {
+				where = `scenes.scene_id like "slr-%"`
+			} else {
+				where = `scenes.scene_id not like "slr-%"`
+			}
+		case "VRPHub Scraper":
+			if truefalse {
+				where = `scenes.scene_id like "vrphub-%"`
+			} else {
+				where = `scenes.scene_id not like "vrphub-%"`
+			}
+		case "VRPorn Scraper":
+			if truefalse {
+				where = `scenes.scene_id like "vrporn-%"`
+			} else {
+				where = `scenes.scene_id not like "vrporn-%"`
+			}
 		}
 
 		switch firstchar := string(attribute.OrElse(" ")[0]); firstchar {

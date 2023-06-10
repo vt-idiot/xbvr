@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/bregydoc/gtranslate"
-	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/v2"
 	"github.com/mozillazg/go-slugify"
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/gjson"
@@ -28,6 +28,7 @@ func CariVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 
 		sc := models.ScrapedScene{}
+		sc.ScraperID = scraperID
 		sc.SceneType = "VR"
 		sc.Studio = "Caribbeancom"
 		sc.Site = siteID

@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/emicklei/go-restful"
-	restfulspec "github.com/emicklei/go-restful-openapi"
+	restfulspec "github.com/emicklei/go-restful-openapi/v2"
+	"github.com/emicklei/go-restful/v3"
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
@@ -175,6 +175,7 @@ func (i AkaResource) deleteAka(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
+	db.Model(&aka).Association("Akas").Clear() // delete aka links with actors
 	db.Delete(&aka)
 	defer resp.WriteHeaderAndEntity(http.StatusOK, aka)
 

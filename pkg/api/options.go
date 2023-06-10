@@ -5,14 +5,18 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/emicklei/go-restful"
-	restfulspec "github.com/emicklei/go-restful-openapi"
+	restfulspec "github.com/emicklei/go-restful-openapi/v2"
+	"github.com/emicklei/go-restful/v3"
+	"github.com/go-resty/resty/v2"
 	"github.com/jinzhu/gorm"
 	"github.com/mcuadros/go-version"
 	"github.com/pkg/errors"
@@ -24,7 +28,6 @@ import (
 	"github.com/xbapps/xbvr/pkg/tasks"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
-	"gopkg.in/resty.v1"
 )
 
 type NewVolumeRequest struct {
@@ -40,15 +43,22 @@ type VersionCheckResponse struct {
 }
 
 type RequestSaveOptionsWeb struct {
-	TagSort          string `json:"tagSort"`
-	SceneWatchlist   bool   `json:"sceneWatchlist"`
-	SceneFavourite   bool   `json:"sceneFavourite"`
-	SceneWatched     bool   `json:"sceneWatched"`
-	SceneEdit        bool   `json:"sceneEdit"`
-	SceneCuepoint    bool   `json:"sceneCuepoint"`
-	ShowHspFile      bool   `json:"showHspFile"`
-	SceneTrailerlist bool   `json:"sceneTrailerlist"`
-	UpdateCheck      bool   `json:"updateCheck"`
+	TagSort           string `json:"tagSort"`
+	SceneWatchlist    bool   `json:"sceneWatchlist"`
+	SceneFavourite    bool   `json:"sceneFavourite"`
+	SceneWatched      bool   `json:"sceneWatched"`
+	SceneEdit         bool   `json:"sceneEdit"`
+	SceneDuration     bool   `json:"sceneDuration"`
+	SceneCuepoint     bool   `json:"sceneCuepoint"`
+	ShowHspFile       bool   `json:"showHspFile"`
+	ShowSubtitlesFile bool   `json:"showSubtitlesFile"`
+	SceneTrailerlist  bool   `json:"sceneTrailerlist"`
+	UpdateCheck       bool   `json:"updateCheck"`
+}
+
+type RequestSaveOptionsAdvanced struct {
+	ShowInternalSceneId bool `json:"showInternalSceneId"`
+	ShowHSPApiLink      bool `json:"showHSPApiLink"`
 }
 
 type RequestSaveOptionsDLNA struct {
@@ -127,6 +137,13 @@ type RequestCuepointsResponse struct {
 	Positions []string `json:"positions"`
 	Actions   []string `json:"actions"`
 }
+type RequestSCustomSiteCreate struct {
+	Url     string `json:"scraperUrl"`
+	Name    string `json:"scraperName"`
+	Avatar  string `json:"scraperAvatar"`
+	Company string `json:"scraperCompany"`
+}
+
 type ConfigResource struct{}
 
 func (i ConfigResource) WebService() *restful.WebService {
@@ -149,6 +166,9 @@ func (i ConfigResource) WebService() *restful.WebService {
 		Metadata(restfulspec.KeyOpenAPITags, tags))
 
 	ws.Route(ws.PUT("/sites/{site}").To(i.toggleSite).
+		Metadata(restfulspec.KeyOpenAPITags, tags))
+
+	ws.Route(ws.PUT("/sites/subscribed/{site}").To(i.toggleSubscribed).
 		Metadata(restfulspec.KeyOpenAPITags, tags))
 
 	ws.Route(ws.POST("/scraper/force-site-update").To(i.forceSiteUpdate).
@@ -180,6 +200,10 @@ func (i ConfigResource) WebService() *restful.WebService {
 	ws.Route(ws.PUT("/interface/web").To(i.saveOptionsWeb).
 		Metadata(restfulspec.KeyOpenAPITags, tags))
 
+	// "Web Advanced UI options" section endpoints
+	ws.Route(ws.PUT("/interface/advanced").To(i.saveOptionsAdvanced).
+		Metadata(restfulspec.KeyOpenAPITags, tags))
+
 	// "Cache" section endpoints
 	ws.Route(ws.DELETE("/cache/reset/{cache}").To(i.resetCache).
 		Param(ws.PathParameter("cache", "Cache to reset - possible choices are `images`, `previews`, and `searchIndex`").DataType("string")).
@@ -202,6 +226,11 @@ func (i ConfigResource) WebService() *restful.WebService {
 	// "Cuepoints section endpoints"
 	ws.Route(ws.GET("/cuepoints").To(i.getDefaultCuepoints).
 		Metadata(restfulspec.KeyOpenAPITags, tags))
+
+	// "Cuepoints section endpoints"
+	ws.Route(ws.PUT("/custom-sites/create").To(i.createCustomSite).
+		Metadata(restfulspec.KeyOpenAPITags, tags))
+
 	return ws
 }
 
@@ -209,7 +238,7 @@ func (i ConfigResource) versionCheck(req *restful.Request, resp *restful.Respons
 	out := VersionCheckResponse{LatestVersion: common.CurrentVersion, CurrentVersion: common.CurrentVersion, UpdateNotify: false}
 
 	if config.Config.Web.UpdateCheck && common.CurrentVersion != "CURRENT" {
-		r, err := resty.R().
+		r, err := resty.New().R().
 			SetHeader("User-Agent", "XBVR/"+common.CurrentVersion).
 			SetHeader("Accept", "application/vnd.github.v3+json").
 			Get("https://api.github.com/repos/xbapps/xbvr/releases/latest")
@@ -232,19 +261,17 @@ func (i ConfigResource) versionCheck(req *restful.Request, resp *restful.Respons
 func (i ConfigResource) listSites(req *restful.Request, resp *restful.Response) {
 	db, _ := models.GetDB()
 	defer db.Close()
-
-	var sites []models.Site
-	switch db.Dialect().GetName() {
-	case "mysql":
-		db.Order("name asc").Find(&sites)
-	case "sqlite3":
-		db.Order("name COLLATE NOCASE asc").Find(&sites)
-	}
-
-	resp.WriteHeaderAndEntity(http.StatusOK, sites)
+	i.listSitesWithDB(req, resp, db)
 }
 
 func (i ConfigResource) toggleSite(req *restful.Request, resp *restful.Response) {
+	i.toggleSiteField(req, resp, "IsEnabled")
+}
+func (i ConfigResource) toggleSubscribed(req *restful.Request, resp *restful.Response) {
+	i.toggleSiteField(req, resp, "Subscribed")
+}
+
+func (i ConfigResource) toggleSiteField(req *restful.Request, resp *restful.Response, field string) {
 	db, _ := models.GetDB()
 	defer db.Close()
 
@@ -259,9 +286,20 @@ func (i ConfigResource) toggleSite(req *restful.Request, resp *restful.Response)
 		log.Error(err)
 		return
 	}
-	site.IsEnabled = !site.IsEnabled
+	switch field {
+	case "IsEnabled":
+		site.IsEnabled = !site.IsEnabled
+	case "Subscribed":
+		site.Subscribed = !site.Subscribed
+		log.Infof("Toggling %s %v", id, site.Subscribed)
+		db.Model(&models.Scene{}).Where("scraper_id = ?", site.ID).Update("is_subscribed", site.Subscribed)
+	}
 	site.Save()
 
+	i.listSitesWithDB(req, resp, db)
+}
+
+func (i ConfigResource) listSitesWithDB(req *restful.Request, resp *restful.Response, db *gorm.DB) {
 	var sites []models.Site
 	switch db.Dialect().GetName() {
 	case "mysql":
@@ -270,6 +308,14 @@ func (i ConfigResource) toggleSite(req *restful.Request, resp *restful.Response)
 		db.Order("name COLLATE NOCASE asc").Find(&sites)
 	}
 
+	scrapers := models.GetScrapers()
+	for idx, site := range sites {
+		for _, scraper := range scrapers {
+			if site.ID == scraper.ID {
+				sites[idx].HasScraper = true
+			}
+		}
+	}
 	resp.WriteHeaderAndEntity(http.StatusOK, sites)
 }
 
@@ -286,10 +332,26 @@ func (i ConfigResource) saveOptionsWeb(req *restful.Request, resp *restful.Respo
 	config.Config.Web.SceneFavourite = r.SceneFavourite
 	config.Config.Web.SceneWatched = r.SceneWatched
 	config.Config.Web.SceneEdit = r.SceneEdit
+	config.Config.Web.SceneDuration = r.SceneDuration
 	config.Config.Web.SceneCuepoint = r.SceneCuepoint
 	config.Config.Web.ShowHspFile = r.ShowHspFile
+	config.Config.Web.ShowSubtitlesFile = r.ShowSubtitlesFile
 	config.Config.Web.SceneTrailerlist = r.SceneTrailerlist
 	config.Config.Web.UpdateCheck = r.UpdateCheck
+	config.SaveConfig()
+
+	resp.WriteHeaderAndEntity(http.StatusOK, r)
+}
+func (i ConfigResource) saveOptionsAdvanced(req *restful.Request, resp *restful.Response) {
+	var r RequestSaveOptionsAdvanced
+	err := req.ReadEntity(&r)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	config.Config.Advanced.ShowInternalSceneId = r.ShowInternalSceneId
+	config.Config.Advanced.ShowHSPApiLink = r.ShowHSPApiLink
 	config.SaveConfig()
 
 	resp.WriteHeaderAndEntity(http.StatusOK, r)
@@ -448,7 +510,7 @@ func (i ConfigResource) removeStorage(req *restful.Request, resp *restful.Respon
 
 func (i ConfigResource) forceSiteUpdate(req *restful.Request, resp *restful.Response) {
 	var r struct {
-		SiteName string `json:"site_name"`
+		ScraperId string `json:"scraper_id"`
 	}
 
 	if err := req.ReadEntity(&r); err != nil {
@@ -459,12 +521,12 @@ func (i ConfigResource) forceSiteUpdate(req *restful.Request, resp *restful.Resp
 	db, _ := models.GetDB()
 	defer db.Close()
 
-	db.Model(&models.Scene{}).Where("site = ?", r.SiteName).Update("needs_update", true)
+	db.Model(&models.Scene{}).Where("scraper_id = ?", r.ScraperId).Update("needs_update", true)
 }
 
 func (i ConfigResource) deleteScenes(req *restful.Request, resp *restful.Response) {
 	var r struct {
-		SiteName string `json:"site_name"`
+		ScraperId string `json:"scraper_id"`
 	}
 
 	if err := req.ReadEntity(&r); err != nil {
@@ -476,7 +538,7 @@ func (i ConfigResource) deleteScenes(req *restful.Request, resp *restful.Respons
 	defer db.Close()
 
 	var scenes []models.Scene
-	db.Where("site = ?", r.SiteName).Find(&scenes)
+	db.Where("scraper_id = ?", r.ScraperId).Find(&scenes)
 
 	for _, obj := range scenes {
 		files, _ := obj.GetFiles()
@@ -486,7 +548,7 @@ func (i ConfigResource) deleteScenes(req *restful.Request, resp *restful.Respons
 		}
 	}
 
-	db.Where("site = ?", r.SiteName).Delete(&models.Scene{})
+	db.Where("scraper_id = ?", r.ScraperId).Delete(&models.Scene{})
 }
 
 func (i ConfigResource) getState(req *restful.Request, resp *restful.Response) {
@@ -706,4 +768,77 @@ func (i ConfigResource) getDefaultCuepoints(req *restful.Request, resp *restful.
 	var cp RequestCuepointsResponse
 	json.Unmarshal([]byte(kv.Value), &cp)
 	resp.WriteHeaderAndEntity(http.StatusOK, &cp)
+}
+func (i ConfigResource) createCustomSite(req *restful.Request, resp *restful.Response) {
+	db, _ := models.GetDB()
+	defer db.Close()
+
+	var r RequestSCustomSiteCreate
+	err := req.ReadEntity(&r)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	if r.Url == "" || r.Name == "" {
+		return
+	}
+	r.Url = strings.TrimSpace(r.Url)
+	r.Name = strings.TrimSpace(r.Name)
+	r.Company = strings.TrimSpace(r.Company)
+	r.Avatar = strings.TrimSpace(r.Avatar)
+	if r.Company == "" {
+		r.Company = r.Name
+	}
+
+	var scraperConfig config.ScraperList
+	scraperConfig.Load()
+
+	re := regexp.MustCompile(`^(https?://)?(www\.)?([^./]+)\.`)
+	match := re.FindStringSubmatch(r.Url)
+	if len(match) < 3 {
+		return
+	}
+
+	r.Url = strings.TrimSuffix(r.Url, "/")
+
+	scrapers := make(map[string][]config.ScraperConfig)
+	scrapers["povr"] = scraperConfig.CustomScrapers.PovrScrapers
+	scrapers["slr"] = scraperConfig.CustomScrapers.SlrScrapers
+	scrapers["vrphub"] = scraperConfig.CustomScrapers.VrphubScrapers
+	scrapers["vrporn"] = scraperConfig.CustomScrapers.VrpornScrapers
+
+	exists := false
+	for key, group := range scrapers {
+		for idx, site := range group {
+			if site.URL == r.Url {
+				exists = true
+				scrapers[key][idx].Name = r.Name
+				scrapers[key][idx].Company = r.Company
+				scrapers[key][idx].AvatarUrl = r.Avatar
+			}
+		}
+	}
+
+	if !exists {
+		scraper := config.ScraperConfig{URL: r.Url, Name: r.Name, Company: r.Company, AvatarUrl: r.Avatar}
+		switch match[3] {
+		case "povr":
+			scrapers["povr"] = append(scrapers["povrr"], scraper)
+		case "sexlikereal":
+			scrapers["slr"] = append(scrapers["slr"], scraper)
+		case "vrphub":
+			scrapers["vrphub"] = append(scrapers["vrphub"], scraper)
+		case "vrporn":
+			scrapers["vrporn"] = append(scrapers["vrporn"], scraper)
+		}
+	}
+	scraperConfig.CustomScrapers.PovrScrapers = scrapers["povr"]
+	scraperConfig.CustomScrapers.SlrScrapers = scrapers["slr"]
+	scraperConfig.CustomScrapers.VrphubScrapers = scrapers["vrphub"]
+	scraperConfig.CustomScrapers.VrpornScrapers = scrapers["vrporn"]
+	fName := filepath.Join(common.AppDir, "scrapers.json")
+	list, _ := json.MarshalIndent(scraperConfig, "", "  ")
+	ioutil.WriteFile(fName, list, 0644)
+
+	resp.WriteHeader(http.StatusOK)
 }

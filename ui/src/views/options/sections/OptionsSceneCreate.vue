@@ -39,7 +39,8 @@
         </b-field>
         <b-field label="Scene ID" label-position="on-border" grouped>
           <b-input v-model="customSceneID" placeholder="Can be empty" type="search"></b-input>
-          <b-button class="button is-primary" v-on:click="addScene()">{{$t('Go')}}</b-button>
+          <b-button class="button is-primary" v-on:click="addScene(false)">{{$t('Create')}}</b-button>
+          <b-button class="button is-primary" v-on:click="addScene(true)" style="margin-left:0.2em">{{$t('Create and Edit')}}</b-button>
         </b-field>
       </div>
     </div>
@@ -55,16 +56,24 @@ export default {
     return {
       javrScraper: 'javdatabase',
       javrQuery: '',
-      tpdbSceneUrl: ''
+      tpdbSceneUrl: '',
+      customSceneTitle: '',
+      customSceneID: ''
     }
   },
   mounted () {
     this.$store.dispatch('optionsVendor/load')
   },
   methods: {
-    addScene() {
+    addScene(showEdit) {
       if (this.customSceneTitle !== '') {
         ky.post('/api/scene/create', { json: { title: this.customSceneTitle, id: this.customSceneID } })
+        .json()
+        .then(scene => {          
+          if (showEdit) {
+            this.$store.commit('overlay/editDetails', { scene: scene })
+          }
+        })          
       }
     },
     scrapeJAVR () {

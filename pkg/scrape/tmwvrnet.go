@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/v2"
 	"github.com/mozillazg/go-slugify"
 	"github.com/nleeper/goment"
 	"github.com/thoas/go-funk"
@@ -25,6 +25,7 @@ func TmwVRnet(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
+		sc.ScraperID = scraperID
 		sc.SceneType = "VR"
 		sc.Studio = "TeenMegaWorld"
 		sc.Site = siteID
@@ -116,5 +117,5 @@ func TmwVRnet(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 }
 
 func init() {
-	registerScraper("tmwvrnet", "TmwVRnet", "https://pbs.twimg.com/profile_images/832208391967797250/1rEowkN6_200x200.jpg", TmwVRnet)
+	registerScraper("tmwvrnet", "TmwVRnet", "https://tmwvrnet.com/assets/vr/public/tour1/images/favicon/apple-touch-icon.png", TmwVRnet)
 }

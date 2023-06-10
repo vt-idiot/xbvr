@@ -14,13 +14,15 @@ import (
 	"sync"
 
 	"github.com/dustin/go-humanize"
-	"github.com/emicklei/go-restful"
-	restfulspec "github.com/emicklei/go-restful-openapi"
+	restfulspec "github.com/emicklei/go-restful-openapi/v2"
+	"github.com/emicklei/go-restful/v3"
 	"github.com/markphelps/optional"
 	"github.com/xbapps/xbvr/pkg/config"
 	"github.com/xbapps/xbvr/pkg/models"
 	"github.com/xbapps/xbvr/pkg/tasks"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/text/language"
+	"golang.org/x/text/language/display"
 )
 
 type HeresphereLibrary struct {
@@ -34,33 +36,40 @@ type HeresphereListScenes struct {
 }
 
 type HeresphereVideo struct {
-	Access               int                `json:"access"`
-	Title                string             `json:"title"`
-	Description          string             `json:"description"`
-	ThumbnailImage       string             `json:"thumbnailImage"`
-	ThumbnailVideo       string             `json:"thumbnailVideo,omitempty"`
-	DateReleased         string             `json:"dateReleased"`
-	DateAdded            string             `json:"dateAdded"`
-	DurationMilliseconds uint               `json:"duration"`
-	Rating               float64            `json:"rating,omitempty"`
-	IsFavorite           bool               `json:"isFavorite"`
-	Projection           string             `json:"projection"`
-	Stereo               string             `json:"stereo"`
-	FOV                  float64            `json:"fov"`
-	Lens                 string             `json:"lens"`
-	HspUrl               string             `json:"hsp,omitempty"`
-	Scripts              []HeresphereScript `json:"scripts,omitempty"`
-	Tags                 []HeresphereTag    `json:"tags,omitempty"`
-	Media                []HeresphereMedia  `json:"media"`
-	WriteFavorite        bool               `json:"writeFavorite"`
-	WriteRating          bool               `json:"writeRating"`
-	WriteTags            bool               `json:"writeTags"`
-	WriteHSP             bool               `json:"writeHSP"`
+	Access               int                   `json:"access"`
+	Title                string                `json:"title"`
+	Description          string                `json:"description"`
+	ThumbnailImage       string                `json:"thumbnailImage"`
+	ThumbnailVideo       string                `json:"thumbnailVideo,omitempty"`
+	DateReleased         string                `json:"dateReleased"`
+	DateAdded            string                `json:"dateAdded"`
+	DurationMilliseconds uint                  `json:"duration"`
+	Rating               float64               `json:"rating,omitempty"`
+	IsFavorite           bool                  `json:"isFavorite"`
+	Projection           string                `json:"projection"`
+	Stereo               string                `json:"stereo"`
+	FOV                  float64               `json:"fov"`
+	Lens                 string                `json:"lens"`
+	HspUrl               string                `json:"hsp,omitempty"`
+	Scripts              []HeresphereScript    `json:"scripts,omitempty"`
+	Subtitles            []HeresphereSubtitles `json:"subtitles,omitempty"`
+	Tags                 []HeresphereTag       `json:"tags,omitempty"`
+	Media                []HeresphereMedia     `json:"media"`
+	WriteFavorite        bool                  `json:"writeFavorite"`
+	WriteRating          bool                  `json:"writeRating"`
+	WriteTags            bool                  `json:"writeTags"`
+	WriteHSP             bool                  `json:"writeHSP"`
 }
 
 type HeresphereScript struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
+}
+
+type HeresphereSubtitles struct {
+	Name     string `json:"name"`
+	Language string `json:"language"`
+	URL      string `json:"url"`
 }
 
 type HeresphereTag struct {
@@ -140,17 +149,17 @@ func (i HeresphereResource) WebService() *restful.WebService {
 
 	ws := new(restful.WebService)
 
-	ws.Path("/heresphere/").
+	ws.Path("/heresphere").
 		Filter(HeresphereResponseFilter).
 		Consumes(restful.MIME_JSON, "application/x-www-form-urlencoded").
 		Produces(restful.MIME_JSON)
 
-	ws.Route(ws.HEAD("").To(i.getHeresphereLibrary))
+	ws.Route(ws.HEAD("/").To(i.getHeresphereLibrary))
 
-	ws.Route(ws.GET("").Filter(HeresphereAuthFilter).To(i.getHeresphereLibrary).
+	ws.Route(ws.GET("/").Filter(HeresphereAuthFilter).To(i.getHeresphereLibrary).
 		Metadata(restfulspec.KeyOpenAPITags, tags).
 		Writes(DeoLibrary{}))
-	ws.Route(ws.POST("").Filter(HeresphereAuthFilter).To(i.getHeresphereLibrary).
+	ws.Route(ws.POST("/").Filter(HeresphereAuthFilter).To(i.getHeresphereLibrary).
 		Metadata(restfulspec.KeyOpenAPITags, tags).
 		Writes(DeoLibrary{}))
 
@@ -212,7 +221,7 @@ func (i HeresphereResource) getHeresphereFile(req *restful.Request, resp *restfu
 				Height:     height,
 				Width:      width,
 				Size:       file.Size,
-				URL:        fmt.Sprintf("http://%v/api/dms/file/%v/%v/%v", req.Request.Host, file.ID, file.Filename, dnt),
+				URL:        fmt.Sprintf("%v://%v/api/dms/file/%v/%v", getProto(req), req.Request.Host, file.ID, dnt),
 			},
 		},
 	})
@@ -221,7 +230,7 @@ func (i HeresphereResource) getHeresphereFile(req *restful.Request, resp *restfu
 		Access:               1,
 		Title:                file.Filename,
 		Description:          file.Filename,
-		ThumbnailImage:       "http://" + req.Request.Host + "/ui/images/blank.png",
+		ThumbnailImage:       getProto(req) + "://" + req.Request.Host + "/ui/images/blank.png",
 		DateReleased:         file.CreatedTime.Format("2006-01-02"),
 		DateAdded:            file.CreatedTime.Format("2006-01-02"),
 		DurationMilliseconds: uint(file.VideoDuration * 1000),
@@ -326,7 +335,7 @@ func (i HeresphereResource) getHeresphereScene(req *restful.Request, resp *restf
 					Height:     height,
 					Width:      width,
 					Size:       file.Size,
-					URL:        fmt.Sprintf("http://%v/api/dms/file/%v/%v/%v", req.Request.Host, file.ID, scene.GetFunscriptTitle(), dnt),
+					URL:        fmt.Sprintf("%v://%v/api/dms/file/%v/%v", getProto(req), req.Request.Host, file.ID, dnt),
 				},
 			},
 		}
@@ -512,9 +521,16 @@ func (i HeresphereResource) getHeresphereScene(req *restful.Request, resp *restf
 	}
 
 	for i := range scene.Tags {
-		tags = append(tags, HeresphereTag{
-			Name: "Category:" + scene.Tags[i].Name,
-		})
+		if strings.HasPrefix(scene.Tags[i].Name, "tag group:") {
+			akaCnt++
+			tags = append(tags, HeresphereTag{
+				Name: strings.Replace(strings.Replace(scene.Tags[i].Name, ",", "/", -1), "tag group:", "Tag Group:", 1),
+			})
+		} else {
+			tags = append(tags, HeresphereTag{
+				Name: "Category:" + scene.Tags[i].Name,
+			})
+		}
 	}
 
 	var heresphereScriptFiles []HeresphereScript
@@ -529,7 +545,43 @@ func (i HeresphereResource) getHeresphereScene(req *restful.Request, resp *restf
 		addFeatureTag("Is scripted")
 		heresphereScriptFiles = append(heresphereScriptFiles, HeresphereScript{
 			Name: file.Filename,
-			URL:  fmt.Sprintf("http://%v/api/dms/file/%v", req.Request.Host, file.ID),
+			URL:  fmt.Sprintf("%v://%v/api/dms/file/%v", getProto(req), req.Request.Host, file.ID),
+		})
+	}
+
+	var heresphereSubtitlesFiles []HeresphereSubtitles
+	var subtitlesFiles []models.File
+	subtitlesFiles, err = scene.GetSubtitlesFiles()
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	getLanguage := func(path string) string {
+		path = path[:len(path)-4]
+		index := strings.LastIndex(path, ".")
+		if index > -1 {
+			languageCode := path[index+1:]
+			languageTag, err := language.Parse(languageCode)
+			if err != nil {
+				log.Error(err)
+				languageTag = language.MustParse("en")
+			}
+			en := display.English.Languages()
+			return en.Name(languageTag)
+		} else {
+			languageTag := language.MustParse("en")
+			en := display.English.Languages()
+			return en.Name(languageTag)
+		}
+	}
+
+	for _, file := range subtitlesFiles {
+		addFeatureTag("Has subtitles")
+		heresphereSubtitlesFiles = append(heresphereSubtitlesFiles, HeresphereSubtitles{
+			Name:     file.Filename,
+			Language: getLanguage(file.Filename),
+			URL:      fmt.Sprintf("%v://%v/api/dms/file/%v", getProto(req), req.Request.Host, file.ID),
 		})
 	}
 
@@ -543,7 +595,7 @@ func (i HeresphereResource) getHeresphereScene(req *restful.Request, resp *restf
 
 	if len(hspFiles) > 0 {
 		addFeatureTag("Has HSP file")
-		hspUrl = fmt.Sprintf("http://%v/api/dms/file/%v", req.Request.Host, hspFiles[0].ID)
+		hspUrl = fmt.Sprintf("%v://%v/api/dms/file/%v", getProto(req), req.Request.Host, hspFiles[0].ID)
 	}
 
 	var projection string = "equirectangular"
@@ -613,12 +665,12 @@ func (i HeresphereResource) getHeresphereScene(req *restful.Request, resp *restf
 	}
 
 	title := scene.Title
-	thumbnailURL := "http://" + req.Request.Host + "/img/700x/" + strings.Replace(scene.CoverURL, "://", ":/", -1)
+	thumbnailURL := getProto(req) + "://" + req.Request.Host + "/img/700x/" + strings.Replace(scene.CoverURL, "://", ":/", -1)
 
 	if scene.IsScripted {
 		title = scene.GetFunscriptTitle()
 		if config.Config.Interfaces.DeoVR.RenderHeatmaps {
-			thumbnailURL = "http://" + req.Request.Host + "/imghm/" + fmt.Sprint(scene.ID) + "/" + strings.Replace(scene.CoverURL, "://", ":/", -1)
+			thumbnailURL = getProto(req) + "://" + req.Request.Host + "/imghm/" + fmt.Sprint(scene.ID) + "/" + strings.Replace(scene.CoverURL, "://", ":/", -1)
 		}
 	}
 
@@ -656,6 +708,7 @@ func (i HeresphereResource) getHeresphereScene(req *restful.Request, resp *restf
 		Lens:                 lens,
 		HspUrl:               hspUrl,
 		Scripts:              heresphereScriptFiles,
+		Subtitles:            heresphereSubtitlesFiles,
 		Tags:                 tags,
 		Media:                media,
 		WriteFavorite:        config.Config.Interfaces.Heresphere.AllowFavoriteUpdates,
@@ -665,7 +718,7 @@ func (i HeresphereResource) getHeresphereScene(req *restful.Request, resp *restf
 	}
 
 	if scene.HasVideoPreview {
-		video.ThumbnailVideo = fmt.Sprintf("http://%v/api/dms/preview/%v", req.Request.Host, scene.SceneID)
+		video.ThumbnailVideo = fmt.Sprintf("%v://%v/api/dms/preview/%v", getProto(req), req.Request.Host, scene.SceneID)
 	}
 
 	resp.WriteHeaderAndEntity(http.StatusOK, video)
@@ -889,6 +942,7 @@ func matchCuepoint(findCuepoint models.SceneCuepoint, cuepointList []models.Scen
 }
 
 func (i HeresphereResource) getHeresphereLibrary(req *restful.Request, resp *restful.Response) {
+	log.Infof("getHeresphereLibrary called, enabled %v", config.Config.Interfaces.DeoVR.Enabled)
 	if !config.Config.Interfaces.DeoVR.Enabled {
 		return
 	}
@@ -913,7 +967,7 @@ func (i HeresphereResource) getHeresphereLibrary(req *restful.Request, resp *res
 
 			list := make([]string, len(q.Scenes))
 			for i := range q.Scenes {
-				url := fmt.Sprintf("http://%v/heresphere/%v", req.Request.Host, q.Scenes[i].ID)
+				url := fmt.Sprintf("%v://%v/heresphere/%v", getProto(req), req.Request.Host, q.Scenes[i].ID)
 				list[i] = url
 			}
 
@@ -936,7 +990,7 @@ func (i HeresphereResource) getHeresphereLibrary(req *restful.Request, resp *res
 	if len(unmatched) > 0 {
 		list := make([]string, len(unmatched))
 		for i := range unmatched {
-			url := fmt.Sprintf("http://%v/heresphere/file/%v", req.Request.Host, unmatched[i].ID)
+			url := fmt.Sprintf("%v://%v/heresphere/file/%v", getProto(req), req.Request.Host, unmatched[i].ID)
 			list[i] = url
 		}
 
@@ -960,7 +1014,7 @@ func (i HeresphereResource) getHeresphereLibrary(req *restful.Request, resp *res
 					}
 				}
 				if !downloadTag {
-					url := fmt.Sprintf("http://%v/heresphere/%v", req.Request.Host, trailerlist[i].ID)
+					url := fmt.Sprintf("%v://%v/heresphere/%v", getProto(req), req.Request.Host, trailerlist[i].ID)
 					list = append(list, url)
 				}
 			}
