@@ -18,7 +18,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func VRAllure(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
+func VRAllure(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	scraperID := "vrallure"
 	siteID := "VRAllure"
@@ -98,8 +98,10 @@ func VRAllure(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 		sc.TrailerSrc = string(strParams)
 
 		// Cast
+		sc.ActorDetails = make(map[string]models.ActorDetails)
 		e.ForEach(`div.scene-details p.model-name a`, func(id int, e *colly.HTMLElement) {
 			sc.Cast = append(sc.Cast, strings.TrimSpace(strings.Replace(e.Text, ",", "", -1)))
+			sc.ActorDetails[strings.TrimSpace(strings.Replace(e.Text, ",", "", -1))] = models.ActorDetails{Source: sc.ScraperID + " scrape", ProfileUrl: e.Attr("href")}
 		})
 
 		// Duration
@@ -149,7 +151,11 @@ func VRAllure(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 		}
 	})
 
-	siteCollector.Visit("https://vrallure.com/scenes")
+	if singleSceneURL != "" {
+		sceneCollector.Visit(singleSceneURL)
+	} else {
+		siteCollector.Visit("https://vrallure.com/scenes")
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -159,5 +165,5 @@ func VRAllure(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 }
 
 func init() {
-	registerScraper("vrallure", "VRAllure", "https://cdn-nexpectation.secure.yourpornpartner.com/sites/vra/favicon/apple-touch-icon-180x180.png", VRAllure)
+	registerScraper("vrallure", "VRAllure", "https://cdn-nexpectation.secure.yourpornpartner.com/sites/vra/favicon/apple-touch-icon-180x180.png", "vrallure.com", VRAllure)
 }

@@ -26,7 +26,7 @@ func isGoodTag(lookup string) bool {
 	return true
 }
 
-func LethalHardcoreSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, scraperID string, siteID string, URL string) error {
+func LethalHardcoreSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, scraperID string, siteID string, URL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	logScrapeStart(scraperID, siteID)
 
@@ -43,6 +43,19 @@ func LethalHardcoreSite(wg *sync.WaitGroup, updateSite bool, knownScenes []strin
 		// Site ID
 		sc.Site = siteID
 
+		if singleSceneURL != "" {
+			// client := resty.New()
+			// client.SetHeader("User-Agent", UserAgent)
+			// resp, err := client.R().Get("https://www.fuckpassvr.com/api/api/scene/detail")
+			// searchCollector.Response = resp
+			// if err == nil {
+
+			// } else {
+			// 	log.Error(err)
+
+			// }
+
+		}
 		// Release Date
 		tmpDate, _ := goment.New(e.Request.Ctx.Get("date"), "MM/DD/YYYY")
 		sc.Released = tmpDate.Format("YYYY-MM-DD")
@@ -90,11 +103,32 @@ func LethalHardcoreSite(wg *sync.WaitGroup, updateSite bool, knownScenes []strin
 		})
 
 		// Cast
+		sc.ActorDetails = make(map[string]models.ActorDetails)
 		r := strings.NewReplacer("(", "", ")", "")
-		e.ForEach(`div.item-page-details .overlay small`, func(id int, e *colly.HTMLElement) {
-			if id <= 1 {
-				sc.Cast = append(sc.Cast, strings.TrimSpace(r.Replace(e.Text)))
-			}
+		e.ForEach(`div.item-page-details a[data-target="#bodyShotModal"]`, func(id int, e *colly.HTMLElement) {
+			img := ""
+			e.ForEach(`img`, func(id int, e *colly.HTMLElement) {
+				style := e.Attr("style")
+				regexPattern := `url\((.*?)\)`
+				regex, _ := regexp.Compile(regexPattern)
+				matches := regex.FindStringSubmatch(style)
+				if len(matches) > 1 {
+					img = matches[1]
+				} else {
+					if e.Attr("src") != "https://imgs1cdn.adultempire.com/res/pm/pixel.gif" {
+						img = e.Attr("src")
+					} else {
+						log.Infof("% lethalhardcore %s style, %v ", matches)
+					}
+				}
+
+			})
+			e.ForEach(`.overlay small`, func(id int, e *colly.HTMLElement) {
+				if id <= 1 {
+					sc.Cast = append(sc.Cast, strings.TrimSpace(r.Replace(e.Text)))
+					sc.ActorDetails[strings.TrimSpace(r.Replace(e.Text))] = models.ActorDetails{ImageUrl: img}
+				}
+			})
 		})
 
 		// Tags
@@ -139,7 +173,14 @@ func LethalHardcoreSite(wg *sync.WaitGroup, updateSite bool, knownScenes []strin
 		}
 	})
 
-	siteCollector.Visit(URL)
+	if singleSceneURL != "" {
+		ctx := colly.NewContext()
+		ctx.Put("date", "")
+
+		sceneCollector.Visit(singleSceneURL)
+	} else {
+		siteCollector.Visit(URL)
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -148,15 +189,15 @@ func LethalHardcoreSite(wg *sync.WaitGroup, updateSite bool, knownScenes []strin
 	return nil
 }
 
-func LethalHardcoreVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
-	return LethalHardcoreSite(wg, updateSite, knownScenes, out, "lethalhardcorevr", "LethalHardcoreVR", "https://lethalhardcorevr.com/lethal-hardcore-vr-scenes.html?studio=95595")
+func LethalHardcoreVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+	return LethalHardcoreSite(wg, updateSite, knownScenes, out, singleSceneURL, "lethalhardcorevr", "LethalHardcoreVR", "https://lethalhardcorevr.com/lethal-hardcore-vr-scenes.html?studio=95595", singeScrapeAdditionalInfo)
 }
 
-func WhorecraftVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
-	return LethalHardcoreSite(wg, updateSite, knownScenes, out, "whorecraftvr", "WhorecraftVR", "https://lethalhardcorevr.com/lethal-hardcore-vr-scenes.html?studio=95347")
+func WhorecraftVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+	return LethalHardcoreSite(wg, updateSite, knownScenes, out, singleSceneURL, "whorecraftvr", "WhorecraftVR", "https://lethalhardcorevr.com/lethal-hardcore-vr-scenes.html?studio=95347", singeScrapeAdditionalInfo)
 }
 
 func init() {
-	registerScraper("whorecraftvr", "WhorecraftVR", "https://imgs1cdn.adultempire.com/bn/Whorecraft-VR-apple-touch-icon.png", WhorecraftVR)
-	registerScraper("lethalhardcorevr", "LethalHardcoreVR", "https://imgs1cdn.adultempire.com/bn/Lethal-Hardcore-apple-touch-icon.png", LethalHardcoreVR)
+	registerScraper("whorecraftvr", "WhorecraftVR", "https://imgs1cdn.adultempire.com/bn/Whorecraft-VR-apple-touch-icon.png", "lethalhardcorevr.com", WhorecraftVR)
+	registerScraper("lethalhardcorevr", "LethalHardcoreVR", "https://imgs1cdn.adultempire.com/bn/Lethal-Hardcore-apple-touch-icon.png", "lethalhardcorevr.com", LethalHardcoreVR)
 }

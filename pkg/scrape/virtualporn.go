@@ -12,7 +12,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func VirtualPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
+func VirtualPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	scraperID := "bvr"
 	siteID := "VirtualPorn"
@@ -20,6 +20,7 @@ func VirtualPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 
 	sceneCollector := createCollector("virtualporn.com")
 	siteCollector := createCollector("virtualporn.com")
+	pageCnt := 1
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
@@ -68,9 +69,11 @@ func VirtualPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		sc.TrailerSrc = string(strParams)
 
 		// Cast
+		sc.ActorDetails = make(map[string]models.ActorDetails)
 		e.ForEach(`div.player__stats p.player__stats__cast a`, func(id int, e *colly.HTMLElement) {
 			if strings.TrimSpace(e.Text) != "" {
 				sc.Cast = append(sc.Cast, strings.TrimSpace(strings.ReplaceAll(e.Text, "!", "")))
+				sc.ActorDetails[strings.TrimSpace(strings.ReplaceAll(e.Text, "!", ""))] = models.ActorDetails{Source: scraperID + " scrape", ProfileUrl: e.Request.AbsoluteURL(e.Attr("href"))}
 			}
 		})
 
@@ -98,10 +101,15 @@ func VirtualPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		out <- sc
 	})
 
-	siteCollector.OnHTML(`div.pagination a[class="pagination__link "]`, func(e *colly.HTMLElement) {
-		pageURL := e.Request.AbsoluteURL(e.Attr("href"))
-		if !strings.Contains(pageURL, "s=billing.payment") {
-			siteCollector.Visit(pageURL)
+	siteCollector.OnHTML(`body`, func(e *colly.HTMLElement) {
+		sceneCnt := 0
+		e.ForEach(`div.recommended__item`, func(id int, e *colly.HTMLElement) {
+			sceneCnt += 1
+		})
+
+		if sceneCnt > 0 {
+			pageCnt += 1
+			siteCollector.Visit("https://virtualporn.com/videos/" + strconv.Itoa(pageCnt))
 		}
 	})
 
@@ -128,7 +136,15 @@ func VirtualPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		}
 	})
 
-	siteCollector.Visit("https://virtualporn.com/videos")
+	if singleSceneURL != "" {
+		ctx := colly.NewContext()
+		ctx.Put("dur", "")
+		ctx.Put("date", "")
+
+		sceneCollector.Request("GET", singleSceneURL, nil, ctx, nil)
+	} else {
+		siteCollector.Visit("https://virtualporn.com/videos/" + strconv.Itoa(pageCnt))
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -138,5 +154,5 @@ func VirtualPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 }
 
 func init() {
-	registerScraper("bvr", "VirtualPorn", "https://images.cn77nd.com/members/bangbros/favicon/apple-icon-60x60.png", VirtualPorn)
+	registerScraper("bvr", "VirtualPorn", "https://images.cn77nd.com/members/bangbros/favicon/apple-icon-60x60.png", "virtualporn.com", VirtualPorn)
 }

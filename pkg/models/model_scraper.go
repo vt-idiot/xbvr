@@ -7,37 +7,47 @@ import (
 
 var scrapers []Scraper
 
-type ScraperFunc func(*sync.WaitGroup, bool, []string, chan<- ScrapedScene) error
+type ScraperFunc func(*sync.WaitGroup, bool, []string, chan<- ScrapedScene, string, string) error
 
 type Scraper struct {
-	ID        string
-	Name      string
-	AvatarURL string
-	Scrape    ScraperFunc
+	ID        string      `json:"id"`
+	Name      string      `json:"name"`
+	AvatarURL string      `json:"avaatarurl"`
+	Domain    string      `json:"domain"`
+	Scrape    ScraperFunc `json:"-"`
 }
 
 type ScrapedScene struct {
-	SceneID     string   `json:"_id"`
-	ScraperID   string   `json:"xbvr_site"`
-	SiteID      string   `json:"scene_id"`
-	SceneType   string   `json:"scene_type"`
-	Title       string   `json:"title"`
-	Studio      string   `json:"studio"`
-	Site        string   `json:"site"`
-	Covers      []string `json:"covers"`
-	Gallery     []string `json:"gallery"`
-	Tags        []string `json:"tags"`
-	Cast        []string `json:"cast"`
-	Filenames   []string `json:"filename"`
-	Duration    int      `json:"duration"`
-	Synopsis    string   `json:"synopsis"`
-	Released    string   `json:"released"`
-	HomepageURL string   `json:"homepage_url"`
-	MembersUrl  string   `json:"members_url"`
-	TrailerType string   `json:"trailer_type"`
-	TrailerSrc  string   `json:"trailer_source"`
+	SceneID           string   `json:"_id"`
+	ScraperID         string   `json:"xbvr_site"`
+	SiteID            string   `json:"scene_id"`
+	SceneType         string   `json:"scene_type"`
+	Title             string   `json:"title"`
+	Studio            string   `json:"studio"`
+	Site              string   `json:"site"`
+	Covers            []string `json:"covers"`
+	Gallery           []string `json:"gallery"`
+	Tags              []string `json:"tags"`
+	Cast              []string `json:"cast"`
+	Filenames         []string `json:"filename"`
+	Duration          int      `json:"duration"`
+	Synopsis          string   `json:"synopsis"`
+	Released          string   `json:"released"`
+	HomepageURL       string   `json:"homepage_url"`
+	MembersUrl        string   `json:"members_url"`
+	TrailerType       string   `json:"trailer_type"`
+	TrailerSrc        string   `json:"trailer_source"`
+	ChromaKey         string   `json:"chromakey"`
+	HasScriptDownload bool     `json:"has_script_Download"`
+
+	ActorDetails map[string]ActorDetails `json:"actor_details"`
 }
 
+type ActorDetails struct {
+	ImageUrl   string
+	ProfileUrl string
+	Source     string
+}
 type TrailerScrape struct {
 	SceneUrl       string `json:"scene_url"`        // url of the page to be scrapped
 	HtmlElement    string `json:"html_element"`     // path to section of html (using colly)
@@ -63,11 +73,12 @@ func GetScrapers() []Scraper {
 	return scrapers
 }
 
-func RegisterScraper(id string, name string, avatarURL string, f ScraperFunc) {
+func RegisterScraper(id string, name string, avatarURL string, domain string, f ScraperFunc) {
 	s := Scraper{}
 	s.ID = id
 	s.Name = name
 	s.AvatarURL = avatarURL
+	s.Domain = domain
 	s.Scrape = f
 	scrapers = append(scrapers, s)
 }

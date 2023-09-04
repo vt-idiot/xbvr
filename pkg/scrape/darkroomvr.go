@@ -13,7 +13,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func DarkRoomVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
+func DarkRoomVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	scraperID := "darkroomvr"
 	siteID := "DarkRoomVR"
@@ -48,9 +48,11 @@ func DarkRoomVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out c
 		})
 
 		// Cast
+		sc.ActorDetails = make(map[string]models.ActorDetails)
 		e.ForEach(`div.video-detail__desktop-sidebar div.video-info__text a`, func(id int, e *colly.HTMLElement) {
 			if strings.TrimSpace(e.Text) != "" {
 				sc.Cast = append(sc.Cast, strings.TrimSpace(e.Text))
+				sc.ActorDetails[strings.TrimSpace(e.Text)] = models.ActorDetails{Source: sc.ScraperID + " scrape", ProfileUrl: e.Attr("href")}
 			}
 		})
 
@@ -111,7 +113,7 @@ func DarkRoomVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out c
 		siteCollector.Visit(pageURL)
 	})
 
-	siteCollector.OnHTML(`div.video-card__container a.video-card__item`, func(e *colly.HTMLElement) {
+	siteCollector.OnHTML(`div.video-card__item a[class=image-container]`, func(e *colly.HTMLElement) {
 		sceneURL := e.Request.AbsoluteURL(e.Attr("href"))
 
 		// If scene exist in database, there's no need to scrape
@@ -120,7 +122,11 @@ func DarkRoomVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out c
 		}
 	})
 
-	siteCollector.Visit("https://darkroomvr.com/video/")
+	if singleSceneURL != "" {
+		sceneCollector.Visit(singleSceneURL)
+	} else {
+		siteCollector.Visit("https://darkroomvr.com/video/")
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -130,5 +136,5 @@ func DarkRoomVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out c
 }
 
 func init() {
-	registerScraper("darkroomvr", "DarkRoomVR", "https://static.darkroomvr.com/img/favicon/apple-touch-180.png", DarkRoomVR)
+	registerScraper("darkroomvr", "DarkRoomVR", "https://static.darkroomvr.com/img/favicon/apple-touch-180.png", "darkroomvr.com", DarkRoomVR)
 }

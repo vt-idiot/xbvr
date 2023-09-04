@@ -6,7 +6,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/gocolly/colly/v2"
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/gjson"
@@ -14,12 +16,15 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, scraperID string, siteID string, company string, siteURL string) error {
+func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, scraperID string, siteID string, company string, siteURL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	logScrapeStart(scraperID, siteID)
 
 	sceneCollector := createCollector("www.sexlikereal.com")
 	siteCollector := createCollector("www.sexlikereal.com")
+
+	db, _ := models.GetDB()
+	defer db.Close()
 
 	// RegEx Patterns
 	coverRegEx := regexp.MustCompile(`background(?:-image)?\s*?:\s*?url\s*?\(\s*?(.*?)\s*?\)`)
@@ -33,6 +38,27 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		sc.SceneType = "VR"
 		sc.Studio = company
 		sc.Site = siteID
+		if scraperID == "" {
+			// there maybe no site/studio if user is jusy scraping a scene url
+			e.ForEach(`div[data-qa="page-scene-studio-name"]`, func(id int, e *colly.HTMLElement) {
+				sc.Studio = strings.TrimSpace(e.Text)
+				sc.Site = strings.TrimSpace(e.Text)
+				studioId := ""
+				p := e.DOM.Parent()
+				studioId, _ = p.Attr("href")
+				studioId = strings.TrimSuffix(strings.ReplaceAll(studioId, "/studios/", ""), "/")
+
+				// see if we can find the site record, there may not be
+				db, _ := models.GetDB()
+				defer db.Close()
+				var site models.Site
+				db.Where("id = ? or name like ? or (name = ? and name like 'SLR%')", studioId, sc.Studio+"%SLR)", sc.Studio).First(&site)
+				if site.ID != "" {
+					sc.ScraperID = site.ID
+				}
+			})
+		}
+
 		sc.HomepageURL = strings.Split(e.Request.URL.String(), "?")[0]
 
 		// Scene ID - get from URL
@@ -74,6 +100,7 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		// Could split by / but would run into issues with "f/f/m" and "shorts / skirts"
 		var videotype string
 		var FB360 string
+		alphA := "false"
 		e.ForEach(`ul.c-meta--scene-tags li a`, func(id int, e *colly.HTMLElement) {
 			if !skiptags[e.Attr("title")] {
 				sc.Tags = append(sc.Tags, e.Attr("title"))
@@ -85,6 +112,11 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 			}
 			if e.Attr("title") == "Spatial audio" {
 				FB360 = "_FB360.MKV"
+			}
+
+			// Passthrough?
+			if e.Attr("title") == "Passthrough" || e.Attr("title") == "Passthrough hack" || e.Attr("title") == "Passthrough AR" {
+				alphA = "PT"
 			}
 
 		})
@@ -158,8 +190,6 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 						}
 					}
 
-					// Filenames
-					appendFilenames(&sc, siteID, filenameRegEx, videotype, FB360)
 				}
 
 			})
@@ -177,7 +207,7 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 
 					// Filenames
 					// trans videos don't appear to follow video type naming conventions
-					appendFilenames(&sc, siteID, filenameRegEx, "", "")
+					//					appendFilenames(&sc, siteID, filenameRegEx, "", "", alphA)
 				}
 			})
 
@@ -192,6 +222,35 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 			})
 		}
 
+		// Passthrough "chromaKey":{"enabled":false,"hasAlpha":true,"h":0,"opacity":1,"s":0,"threshold":0,"v":0}
+		if alphA == "PT" {
+			s, _ := resty.New().R().
+				SetHeader("User-Agent", UserAgent).
+				Get(sc.TrailerSrc)
+			JsonMetadataA := s.String()
+			if gjson.Get(JsonMetadataA, "chromaKey").Exists() {
+				sc.ChromaKey = gjson.Get(JsonMetadataA, "chromaKey").String()
+			}
+			alphA = gjson.Get(JsonMetadataA, "chromaKey.hasAlpha").String()
+		}
+
+		// Filenames
+		appendFilenames(&sc, siteID, filenameRegEx, videotype, FB360, alphA)
+
+		// actor details
+		sc.ActorDetails = make(map[string]models.ActorDetails)
+		e.ForEach(`a[data-qa="scene-model-list-item-photo-link-to-profile"]`, func(id int, e_a *colly.HTMLElement) {
+			e_a.ForEach(`img[data-qa="scene-model-list-item-photo-img"]`, func(id int, e_img *colly.HTMLElement) {
+				name := e_img.Attr("alt")
+				if e_img.Attr("data-src") != "" && name != "" {
+					sc.ActorDetails[name] = models.ActorDetails{ImageUrl: e_img.Attr("data-src"), Source: "slr scrape", ProfileUrl: e_a.Request.AbsoluteURL(e_a.Attr("href"))}
+				}
+			})
+		})
+		sc.HasScriptDownload = false
+		e.ForEach(`ul.c-meta--scene-specs a[href='/tags/sex-toy-scripts-vr']`, func(id int, e_a *colly.HTMLElement) {
+			sc.HasScriptDownload = true
+		})
 		out <- sc
 	})
 
@@ -207,6 +266,10 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		isTransScene := strings.Contains(sceneURL, "/trans")
 
 		if isStraightScene || isTransScene {
+			e.ForEach(`div.c-grid-badge--fleshlight-badge`, func(id int, e_a *colly.HTMLElement) {
+				db.Model(&models.Scene{}).Where("scene_url = ? and script_published = '0000-00-00'", sceneURL).Update("script_published", time.Now())
+			})
+
 			// If scene exist in database, there's no need to scrape
 			if !funk.ContainsString(knownScenes, sceneURL) {
 				durationText := e.ChildText("div.c-grid-ratio-bottom.u-z--two")
@@ -225,7 +288,16 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		}
 	})
 
-	siteCollector.Visit(siteURL + "?sort=most_recent")
+	if singleSceneURL != "" {
+		isTransScene := strings.Contains(singleSceneURL, ".com/trans")
+		ctx := colly.NewContext()
+		ctx.Put("duration", 0)
+		ctx.Put("isTransScene", isTransScene)
+		sceneCollector.Request("GET", singleSceneURL, nil, ctx, nil)
+
+	} else {
+		siteCollector.Visit(siteURL + "?sort=most_recent")
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -234,10 +306,10 @@ func SexLikeReal(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 	return nil
 }
 
-func appendFilenames(sc *models.ScrapedScene, siteID string, filenameRegEx *regexp.Regexp, videotype string, FB360 string) {
+func appendFilenames(sc *models.ScrapedScene, siteID string, filenameRegEx *regexp.Regexp, videotype string, FB360 string, AlphA string) {
 	// Only shown for logged in users so need to generate them
 	// Format: SLR_siteID_Title_<Resolutions>_SceneID_<LR/TB>_<180/360>.mp4
-	resolutions := []string{"_6400p_", "_4000p_", "_3840p_", "_3360p_", "_3160p_", "_3072p_", "_2900p_", "_2880p_", "_2700p_", "_2650p_", "_2160p_", "_1920p_", "_1440p_", "_1080p_", "_original_"}
+	resolutions := []string{"_6400p_", "_4096p_", "_4000p_", "_3840p_", "_3360p_", "_3160p_", "_3072p_", "_3000p_", "_2900p_", "_2880p_", "_2700p_", "_2650p_", "_2160p_", "_1920p_", "_1440p_", "_1080p_", "_original_"}
 	baseName := "SLR_" + strings.TrimSuffix(siteID, " (SLR)") + "_" + filenameRegEx.ReplaceAllString(sc.Title, "_")
 	switch videotype {
 	case "360°": // Sadly can't determine if TB or MONO so have to add both
@@ -247,11 +319,19 @@ func appendFilenames(sc *models.ScrapedScene, siteID string, filenameRegEx *rege
 		}
 	case "Fisheye": // 200° videos named with MKX200
 		for i := range resolutions {
-			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX200.mp4")
-			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX220.mp4")
-			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_RF52.mp4")
-			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_FISHEYE190.mp4")
-			sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_VRCA220.mp4")
+			if AlphA == "true" {
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX200_alpha.mp4")
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX220_alpha.mp4")
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_RF52_alpha.mp4")
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_FISHEYE190_alpha.mp4")
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_VRCA220_alpha.mp4")
+			} else {
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX200.mp4")
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_MKX220.mp4")
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_RF52.mp4")
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_FISHEYE190.mp4")
+				sc.Filenames = append(sc.Filenames, baseName+resolutions[i]+sc.SiteID+"_VRCA220.mp4")
+			}
 		}
 	default: // Assuming everything else is 180 and LR, yet to find a TB_180
 		for i := range resolutions {
@@ -286,13 +366,18 @@ func addSLRScraper(id string, name string, company string, avatarURL string, cus
 		avatarURL = "https://www.sexlikereal.com/s/refactor/images/favicons/android-icon-192x192.png"
 	}
 
-	registerScraper(id, suffixedName, avatarURL, func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
-		return SexLikeReal(wg, updateSite, knownScenes, out, id, siteNameSuffix, company, siteURL)
+	registerScraper(id, suffixedName, avatarURL, "sexlikereal.com", func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+		return SexLikeReal(wg, updateSite, knownScenes, out, singleSceneURL, id, siteNameSuffix, company, siteURL, singeScrapeAdditionalInfo)
 	})
 }
 
 func init() {
 	var scrapers config.ScraperList
+	// scraper for single scenes with no existing scraper for the studio
+	registerScraper("slr-single_scene", "SLR - Other Studios", "", "sexlikereal.com", func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+		return SexLikeReal(wg, updateSite, knownScenes, out, singleSceneURL, "", "", "", "", singeScrapeAdditionalInfo)
+	})
+
 	scrapers.Load()
 	for _, scraper := range scrapers.XbvrScrapers.SlrScrapers {
 		addSLRScraper(scraper.ID, scraper.Name, scraper.Company, scraper.AvatarUrl, false, scraper.URL)
@@ -300,5 +385,4 @@ func init() {
 	for _, scraper := range scrapers.CustomScrapers.SlrScrapers {
 		addSLRScraper(scraper.ID, scraper.Name, scraper.Company, scraper.AvatarUrl, true, scraper.URL)
 	}
-
 }

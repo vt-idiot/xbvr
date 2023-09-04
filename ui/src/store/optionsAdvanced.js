@@ -4,7 +4,11 @@ const state = {
   loading: false,
   advanced: {
     showInternalSceneId: false,
-    showHSPApiLink: false
+    showHSPApiLink: false,
+    showSceneSearchField: false,
+    stashApiKey: '',
+    scrapeActorAfterScene: 'true',
+    useImperialEntry: 'false',
   }
 }
 
@@ -18,6 +22,10 @@ const actions = {
       .then(data => {
         state.advanced.showInternalSceneId = data.config.advanced.showInternalSceneId
         state.advanced.showHSPApiLink = data.config.advanced.showHSPApiLink
+        state.advanced.showSceneSearchField = data.config.advanced.showSceneSearchField
+        state.advanced.stashApiKey = data.config.advanced.stashApiKey
+        state.advanced.scrapeActorAfterScene = data.config.advanced.scrapeActorAfterScene
+        state.advanced.useImperialEntry = data.config.advanced.useImperialEntry
         state.loading = false
       })
   },
@@ -28,6 +36,10 @@ const actions = {
       .then(data => {
         state.advanced.showInternalSceneId = data.showInternalSceneId
         state.advanced.showHSPApiLink = data.showHSPApiLink
+        state.advanced.showSceneSearchField = data.showSceneSearchField
+        state.advanced.stashApiKey = data.stashApiKey
+        state.advanced.scrapeActorAfterScene = data.scrapeActorAfterScene
+        state.advanced.useImperialEntry = data.useImperialEntry
         state.loading = false
       })
   }

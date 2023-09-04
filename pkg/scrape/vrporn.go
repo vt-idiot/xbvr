@@ -14,7 +14,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func VRPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, scraperID string, siteID string, company string, siteURL string) error {
+func VRPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, scraperID string, siteID string, company string, siteURL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	logScrapeStart(scraperID, siteID)
 
@@ -39,6 +39,22 @@ func VRPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 		sc.Site = siteID
 		sc.HomepageURL = strings.Split(e.Request.URL.String(), "?")[0]
 
+		if scraperID == "" {
+			// there maybe no site/studio if user is jusy scraping a scene url
+			e.ForEach(`div.studio a[id="studio-logo"]`, func(id int, e *colly.HTMLElement) {
+				studioId := strings.TrimSuffix(strings.ReplaceAll(e.Attr("href"), "https://vrporn.com/studio/", ""), "/")
+				sc.Studio = strings.TrimSpace(e.Text)
+				sc.Site = sc.Studio
+				// see if we can find the site record, there may not be
+				db, _ := models.GetDB()
+				defer db.Close()
+				var site models.Site
+				db.Where("name like ?", sc.Studio+"%VRPorn) or id = ?", sc.Studio, studioId).First(&site)
+				if site.ID != "" {
+					sc.ScraperID = site.ID
+				}
+			})
+		}
 		// Scene ID - get from page HTML
 		id := sceneIDRegEx.FindStringSubmatch(strings.TrimSpace(e.ChildAttr(`article.post`, "class")))[1]
 		sc.SiteID = id
@@ -85,6 +101,25 @@ func VRPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 			sc.Cast = append(sc.Cast, strings.TrimSpace(e.Text))
 		})
 
+		// Actor Images
+		sc.ActorDetails = make(map[string]models.ActorDetails)
+		e.ForEach(`.lav_item_pornstar a`, func(id int, e *colly.HTMLElement) {
+			var src string
+			e.ForEach(`.avatar_pornstar img`, func(id int, e *colly.HTMLElement) {
+				src = e.Attr("src")
+				if strings.HasSuffix(src, "black1.gif") {
+					src = e.Attr("data-wpfc-original-src")
+				}
+			})
+			name := e.Attr("title")
+			profileUrl := e.Attr("href")
+			if name != "" && src != "" {
+				sc.ActorDetails[name] = models.ActorDetails{Source: "vrporn scrape", ImageUrl: src, ProfileUrl: profileUrl}
+			} else {
+				sc.ActorDetails[name] = models.ActorDetails{Source: "vrporn scrape", ProfileUrl: profileUrl}
+			}
+		})
+
 		// trailer details
 		sc.TrailerType = "scrape_html"
 		params := models.TrailerScrape{SceneUrl: sc.HomepageURL, HtmlElement: "dl8-video source", ContentPath: "src", QualityPath: "quality"}
@@ -127,7 +162,11 @@ func VRPorn(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 		}
 	})
 
-	siteCollector.Visit(siteURL + "/?sort=newest")
+	if singleSceneURL != "" {
+		sceneCollector.Visit(singleSceneURL)
+	} else {
+		siteCollector.Visit(siteURL + "/?sort=newest")
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -145,12 +184,16 @@ func addVRPornScraper(id string, name string, company string, avatarURL string, 
 	} else {
 		suffixedName += " (VRPorn)"
 	}
-	registerScraper(id, suffixedName, avatarURL, func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
-		return VRPorn(wg, updateSite, knownScenes, out, id, siteNameSuffix, company, siteURL)
+	registerScraper(id, suffixedName, avatarURL, "vrporn.com", func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+		return VRPorn(wg, updateSite, knownScenes, out, singleSceneURL, id, siteNameSuffix, company, siteURL, singeScrapeAdditionalInfo)
 	})
 }
 
 func init() {
+	registerScraper("vrporn-single_scene", "VRPorn - Other Studios", "", "vrporn.com", func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+		return VRPorn(wg, updateSite, knownScenes, out, singleSceneURL, "", "", "", "", singeScrapeAdditionalInfo)
+	})
+
 	var scrapers config.ScraperList
 	scrapers.Load()
 	for _, scraper := range scrapers.XbvrScrapers.VrpornScrapers {

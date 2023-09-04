@@ -14,6 +14,7 @@ import (
 	"github.com/avast/retry-go/v4"
 	"github.com/jinzhu/gorm"
 	"github.com/markphelps/optional"
+
 	"github.com/xbapps/xbvr/pkg/common"
 )
 
@@ -102,10 +103,13 @@ type Scene struct {
 	EditsApplied  bool   `json:"edits_applied" gorm:"default:false" xbvrbackup:"-"`
 	TrailerType   string `json:"trailer_type" xbvrbackup:"trailer_type"`
 	TrailerSource string `gorm:"size:1000" json:"trailer_source" xbvrbackup:"trailer_source"`
+	ChromaKey     string `json:"passthrough" xbvrbackup:"passthrough"`
 	Trailerlist   bool   `json:"trailerlist" gorm:"default:false" xbvrbackup:"trailerlist"`
 	IsSubscribed  bool   `json:"is_subscribed" gorm:"default:false"`
 	IsHidden      bool   `json:"is_hidden" gorm:"default:false" xbvrbackup:"is_hidden"`
 	LegacySceneID string `json:"legacy_scene_id" xbvrbackup:"legacy_scene_id"`
+
+	ScriptPublished time.Time `json:"script_published" xbvrbackup:"script_published"`
 
 	Description string  `gorm:"-" json:"description" xbvrbackup:"-"`
 	Score       float64 `gorm:"-" json:"_score" xbvrbackup:"-"`
@@ -115,6 +119,15 @@ type Image struct {
 	URL         string `json:"url"`
 	Type        string `json:"type"`
 	Orientation string `json:"orientation"`
+}
+
+type VideoSourceResponse struct {
+	VideoSources []VideoSource `json:"video_sources"`
+}
+
+type VideoSource struct {
+	URL     string `json:"url"`
+	Quality string `json:"quality"`
 }
 
 func (i *Scene) Save() error {
@@ -187,9 +200,8 @@ func (o *Scene) GetIfExistURL(u string) error {
 }
 
 func (o *Scene) GetFunscriptTitle() string {
-
 	// first make the title filename safe
-	var re = regexp.MustCompile(`[?/\<>|]`)
+	re := regexp.MustCompile(`[?/\<>|]`)
 
 	title := o.Title
 	// Colons are pretty common in titles, so we use a unicode alternative
@@ -225,6 +237,7 @@ func (o *Scene) GetVideoFiles() ([]File, error) {
 	files, err := o.GetVideoFilesSorted("")
 	return files, err
 }
+
 func (o *Scene) GetVideoFilesSorted(sort string) ([]File, error) {
 	db, _ := GetDB()
 	defer db.Close()
@@ -240,9 +253,10 @@ func (o *Scene) GetVideoFilesSorted(sort string) ([]File, error) {
 }
 
 func (o *Scene) GetScriptFiles() ([]File, error) {
-	var files, err = o.GetScriptFilesSorted("is_selected_script DESC, created_time DESC")
+	files, err := o.GetScriptFilesSorted("is_selected_script DESC, created_time DESC")
 	return files, err
 }
+
 func (o *Scene) GetScriptFilesSorted(sort string) ([]File, error) {
 	db, _ := GetDB()
 	defer db.Close()
@@ -431,6 +445,11 @@ func SceneCreateUpdateFromExternal(db *gorm.DB, ext ScrapedScene) error {
 	o.SceneURL = ext.HomepageURL
 	o.MemberURL = ext.MembersUrl
 
+	o.ChromaKey = ext.ChromaKey
+	if ext.HasScriptDownload && o.ScriptPublished.IsZero() {
+		o.ScriptPublished = time.Now()
+	}
+
 	// Trailers
 	o.TrailerType = ext.TrailerType
 	o.TrailerSource = ext.TrailerSrc
@@ -497,6 +516,26 @@ func SceneCreateUpdateFromExternal(db *gorm.DB, ext ScrapedScene) error {
 	for _, name := range ext.Cast {
 		tmpActor = Actor{}
 		db.Where(&Actor{Name: strings.Replace(name, ".", "", -1)}).FirstOrCreate(&tmpActor)
+		saveActor := false
+		if ext.ActorDetails[name].ImageUrl != "" {
+			if tmpActor.ImageUrl == "" {
+				tmpActor.ImageUrl = ext.ActorDetails[name].ImageUrl
+				saveActor = true
+			}
+			if tmpActor.AddToImageArray(ext.ActorDetails[name].ImageUrl) {
+				saveActor = true
+			}
+			// AddActionActor(name, ext.ActorDetails[name].Source, "add", "image_url", ext.ActorDetails[name].ImageUrl)
+		}
+		if ext.ActorDetails[name].ProfileUrl != "" {
+			if tmpActor.AddToActorUrlArray(ActorLink{Url: ext.ActorDetails[name].ProfileUrl, Type: ext.ActorDetails[name].Source}) {
+				saveActor = true
+			}
+			// AddActionActor(name, ext.ActorDetails[name].Source, "add", "image_url", ext.ActorDetails[name].ImageUrl)
+		}
+		if saveActor {
+			tmpActor.Save()
+		}
 		db.Model(&o).Association("Cast").Append(tmpActor)
 	}
 
@@ -582,10 +621,10 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 
 	for _, i := range r.Lists {
 		if i.OrElse("") == "watchlist" {
-			tx = tx.Where("watchlist = ?", true)
+			tx = tx.Where("scenes.watchlist = ?", true)
 		}
 		if i.OrElse("") == "favourite" {
-			tx = tx.Where("favourite = ?", true)
+			tx = tx.Where("scenes.favourite = ?", true)
 		}
 		if i.OrElse("") == "scripted" {
 			tx = tx.Where("is_scripted = ?", true)
@@ -604,6 +643,7 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 		scenecastAlias := "scene_cast_f" + strconv.Itoa(idx)
 		actorsAlias := "actors_f" + strconv.Itoa(idx)
 		scenecuepointAlias := "scene_cuepoints_f" + strconv.Itoa(idx)
+		erlAlias := "external_reference_links_f" + strconv.Itoa(idx)
 
 		if strings.HasPrefix(fieldName, "!") { // ! prefix indicate NOT filtering
 			truefalse = false
@@ -665,9 +705,9 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 			}
 		case "Has Rating":
 			if truefalse {
-				where = "star_rating > 0"
+				where = "scenes.star_rating > 0"
 			} else {
-				where = "star_rating = 0"
+				where = "scenes.star_rating = 0"
 			}
 		case "Has Cuepoints":
 			if truefalse {
@@ -701,9 +741,9 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 			}
 		case "Rating 0", "Rating .5", "Rating 1", "Rating 1.5", "Rating 2", "Rating 2.5", "Rating 3", "Rating 3.5", "Rating 4", "Rating 4.5", "Rating 5":
 			if truefalse {
-				where = "star_rating = " + fieldName[7:]
+				where = "scenes.star_rating = " + fieldName[7:]
 			} else {
-				where = "star_rating <> " + fieldName[7:]
+				where = "scenes.star_rating <> " + fieldName[7:]
 			}
 		case "Cast 6+":
 			if truefalse {
@@ -842,9 +882,9 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 			}
 		case "In Watchlist":
 			if truefalse {
-				where = "watchlist = 1"
+				where = "scenes.watchlist = 1"
 			} else {
-				where = "watchlist = 0"
+				where = "scenes.watchlist = 0"
 			}
 		case "Is Scripted":
 			if truefalse {
@@ -854,9 +894,21 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 			}
 		case "Is Favourite":
 			if truefalse {
-				where = "favourite = 1"
+				where = "scenes.favourite = 1"
 			} else {
-				where = "favourite = 0"
+				where = "scenes.favourite = 0"
+			}
+		case "Is Passthrough":
+			if truefalse {
+				where = "chroma_key != ''"
+			} else {
+				where = "chroma_key = ''"
+			}
+		case "Stashdb Linked":
+			if truefalse {
+				where = "(select count(*) from external_reference_links " + erlAlias + " where " + erlAlias + ".internal_db_id = scenes.id and " + erlAlias + ".`external_source` = 'stashdb scene') > 0"
+			} else {
+				where = "(select count(*) from external_reference_links " + erlAlias + " where " + erlAlias + ".internal_db_id = scenes.id and " + erlAlias + ".`external_source` = 'stashdb scene') = 0"
 			}
 		case "POVR Scraper":
 			if truefalse {
@@ -881,6 +933,12 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 				where = `scenes.scene_id like "vrporn-%"`
 			} else {
 				where = `scenes.scene_id not like "vrporn-%"`
+			}
+		case "Has Script Download":
+			if truefalse {
+				where = "scenes.script_published > '0001-01-01 00:00:00+00:00'"
+			} else {
+				where = "scenes.script_published < '0001-01-02 00:00:00+00:00'"
 			}
 		}
 
@@ -1048,6 +1106,20 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 		tx = tx.Order("release_date desc")
 	case "release_asc":
 		tx = tx.Order("release_date asc")
+	case "title_desc":
+		switch db.Dialect().GetName() {
+		case "mysql":
+			tx = tx.Order("title desc")
+		case "sqlite3":
+			tx = tx.Order("title COLLATE NOCASE desc")
+		}
+	case "title_asc":
+		switch db.Dialect().GetName() {
+		case "mysql":
+			tx = tx.Order("title asc")
+		case "sqlite3":
+			tx = tx.Order("title COLLATE NOCASE asc")
+		}
 	case "total_file_size_desc":
 		tx = tx.Order("total_file_size desc")
 	case "total_file_size_asc":
@@ -1058,12 +1130,12 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 		tx = tx.Order("total_watch_time asc")
 	case "rating_desc":
 		tx = tx.
-			Where("star_rating > ?", 0).
-			Order("star_rating desc")
+			Where("scenes.star_rating > ?", 0).
+			Order("scenes.star_rating desc")
 	case "rating_asc":
 		tx = tx.
-			Where("star_rating > ?", 0).
-			Order("star_rating asc")
+			Where("scenes.star_rating > ?", 0).
+			Order("scenes.star_rating asc")
 	case "last_opened_desc":
 		tx = tx.
 			Where("last_opened > ?", "0001-01-01 00:00:00+00:00").
@@ -1076,6 +1148,8 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 		tx = tx.Order("created_at desc")
 	case "scene_updated_desc":
 		tx = tx.Order("updated_at desc")
+	case "script_published_desc":
+		tx = tx.Order("script_published desc")
 	case "random":
 		if dbConn.Driver == "mysql" {
 			tx = tx.Order("rand()")
@@ -1122,6 +1196,7 @@ func QueryScenes(r RequestSceneList, enablePreload bool) ResponseSceneList {
 
 	return out
 }
+
 func setCuepointString(cuepoint string) string {
 	// swap * wildcard to sql wildcard %
 	cuepoint = strings.Replace(cuepoint, "*", "%", -1)

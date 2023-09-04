@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gocolly/colly/v2"
 	"github.com/mozillazg/go-slugify"
@@ -13,9 +14,11 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func CzechVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, scraperID string, siteID string, nwID string) error {
+func CzechVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, scraperID string, siteID string, nwID string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	logScrapeStart(scraperID, siteID)
+	db, _ := models.GetDB()
+	defer db.Close()
 
 	sceneCollector := createCollector("www.czechvrnetwork.com")
 	siteCollector := createCollector("www.czechvrnetwork.com")
@@ -30,6 +33,18 @@ func CzechVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan
 		sc.HomepageURL = strings.Split(e.Request.URL.String(), "?")[0]
 		sc.MembersUrl = strings.Replace(sc.HomepageURL, "https://www.czechvrnetwork.com/", "https://www.czechvrnetwork.com/members/", 1)
 
+		if scraperID == "" {
+			// there maybe no site/studio if user is just scraping a scene url, find what studio it is for
+			e.ForEach(`h1 span.desktop`, func(id int, e *colly.HTMLElement) {
+				sc.Site = strings.TrimSpace(e.Text)
+				switch sc.Site {
+				case "VR Intimacy":
+					sc.ScraperID = "czechvrintimacy"
+				default:
+					sc.ScraperID = strings.ToLower(strings.ReplaceAll(sc.Site, " ", ""))
+				}
+			})
+		}
 		// Title
 		e.ForEach(`div.post div.nazev h1`, func(id int, e *colly.HTMLElement) {
 			fullTitle := strings.TrimSpace(e.Text)
@@ -69,7 +84,7 @@ func CzechVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan
 		})
 
 		// Date
-		e.ForEach(`div.post div.nazev div.datum`, func(id int, e *colly.HTMLElement) {
+		e.ForEach(`div.post div.nazev div.datumDetail`, func(id int, e *colly.HTMLElement) {
 			tmpDate, _ := goment.New(e.Text, "MMM DD, YYYY")
 			sc.Released = tmpDate.Format("YYYY-MM-DD")
 		})
@@ -81,6 +96,10 @@ func CzechVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan
 			if err == nil {
 				sc.Duration = tmpDuration
 			}
+		})
+
+		e.ForEach(`div.interactive`, func(id int, e *colly.HTMLElement) {
+			sc.HasScriptDownload = true
 		})
 
 		// trailer details
@@ -132,31 +151,45 @@ func CzechVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan
 		siteCollector.Visit(pageURL)
 	})
 
-	siteCollector.OnHTML(`div.postTag div.foto a`, func(e *colly.HTMLElement) {
-		sceneURL := e.Request.AbsoluteURL(e.Attr("href"))
-
-		// If scene exist in database, there's no need to scrape
-		if !funk.ContainsString(knownScenes, sceneURL) {
-			sceneCollector.Visit(sceneURL)
-		}
+	siteCollector.OnHTML(`div.postTag`, func(e *colly.HTMLElement) {
+		sceneURL := ""
+		e.ForEach(`div.foto a`, func(id int, e *colly.HTMLElement) {
+			sceneURL = e.Request.AbsoluteURL(e.Attr("href"))
+			// If scene exist in database, there's no need to scrape
+			if !funk.ContainsString(knownScenes, sceneURL) {
+				sceneCollector.Visit(sceneURL)
+			}
+		})
+		e.ForEach(`div.interactive`, func(id int, e *colly.HTMLElement) {
+			db.Model(&models.Scene{}).Where("scene_url = ? and script_published = '0000-00-00'", sceneURL).Update("script_published", time.Now())
+		})
 	})
 
-	siteCollector.Visit("https://www.czechvrnetwork.com/vr-porn-videos&sites=" + nwID)
+	if singleSceneURL != "" {
+		sceneCollector.Visit(singleSceneURL)
+	} else {
+		siteCollector.Visit("https://www.czechvrnetwork.com/vr-porn-videos&sites=" + nwID)
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
 	}
 	logScrapeFinished(scraperID, siteID)
+
 	return nil
 }
 
 func addCZVRScraper(id string, name string, nwid string, avatarURL string) {
-	registerScraper(id, name, avatarURL, func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
-		return CzechVR(wg, updateSite, knownScenes, out, id, name, nwid)
+	registerScraper(id, name, avatarURL, "czechvrnetwork.com", func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+		return CzechVR(wg, updateSite, knownScenes, out, singleSceneURL, id, name, nwid, singeScrapeAdditionalInfo)
 	})
 }
 
 func init() {
+	// scraper for scraping single scenes where only the url is provided
+	registerScraper("czechvr-single_scene", "Czech VR - Other Studios", "", "czechvrnetwork.com", func(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+		return CzechVR(wg, updateSite, knownScenes, out, singleSceneURL, "", "", "", "")
+	})
 	addCZVRScraper("czechvr", "Czech VR", "15", "https://www.czechvr.com/images/favicon/android-chrome-256x256.png")
 	addCZVRScraper("czechvrfetish", "Czech VR Fetish", "16", "https://www.czechvrfetish.com/images/favicon/android-chrome-256x256.png")
 	addCZVRScraper("czechvrcasting", "Czech VR Casting", "17", "https://www.czechvrcasting.com/images/favicon/android-chrome-256x256.png")

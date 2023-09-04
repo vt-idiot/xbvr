@@ -14,7 +14,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func GroobyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
+func GroobyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	scraperID := "groobyvr"
 	siteID := "GroobyVR"
@@ -37,8 +37,10 @@ func GroobyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 		sc.Title = strings.Replace(e.ChildText(`title`), "Grooby VR: ", "", -1)
 
 		// Cast
+		sc.ActorDetails = make(map[string]models.ActorDetails)
 		e.ForEach(`div.trailer_toptitle_left a`, func(id int, e *colly.HTMLElement) {
 			sc.Cast = append(sc.Cast, strings.TrimSpace(e.Text))
+			sc.ActorDetails[strings.TrimSpace(e.Text)] = models.ActorDetails{Source: scraperID + " scrape", ProfileUrl: e.Request.AbsoluteURL(e.Attr("href"))}
 		})
 
 		// Cover URL
@@ -117,7 +119,11 @@ func GroobyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 		siteCollector.Visit(pageURL)
 	})
 
-	siteCollector.Visit("https://www.groobyvr.com/tour/categories/movies/1/latest/")
+	if singleSceneURL != "" {
+		sceneCollector.Visit(singleSceneURL)
+	} else {
+		siteCollector.Visit("https://www.groobyvr.com/tour/categories/movies/1/latest/")
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -127,5 +133,5 @@ func GroobyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 }
 
 func init() {
-	registerScraper("groobyvr", "GroobyVR", "https://www.groobyvr.com/tour/custom_assets/favicon/apple-touch-icon.png", GroobyVR)
+	registerScraper("groobyvr", "GroobyVR", "https://www.groobyvr.com/tour/custom_assets/favicon/apple-touch-icon.png", "groobyvr.com", GroobyVR)
 }

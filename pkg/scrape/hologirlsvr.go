@@ -11,7 +11,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func HoloGirlsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
+func HoloGirlsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	scraperID := "hologirlsvr"
 	siteID := "HoloGirlsVR"
@@ -67,6 +67,22 @@ func HoloGirlsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		e.ForEach(`div.vidpage-featuring span`, func(id int, e *colly.HTMLElement) {
 			sc.Cast = append(sc.Cast, strings.TrimSpace(e.Text))
 		})
+		sc.ActorDetails = make(map[string]models.ActorDetails)
+		e.ForEach(`div.vidpage-mobilePad`, func(id int, e *colly.HTMLElement) {
+			ad := models.ActorDetails{Source: sc.ScraperID + " scrape"}
+			e.ForEach(`a`, func(id int, e *colly.HTMLElement) {
+				ad.ProfileUrl = e.Response.Request.AbsoluteURL(e.Attr("href"))
+			})
+			e.ForEach(`img.img-responsive`, func(id int, e *colly.HTMLElement) {
+				if !strings.HasSuffix(e.Attr("src"), "/missing.jpg") {
+					ad.ImageUrl = e.Response.Request.AbsoluteURL(e.Attr("src"))
+				}
+			})
+			e.ForEach(`strong`, func(id int, e *colly.HTMLElement) {
+				sc.ActorDetails[strings.TrimSpace(e.Text)] = ad
+			})
+
+		})
 
 		// Tags
 		e.ForEach(`div.videopage-tags em`, func(id int, e *colly.HTMLElement) {
@@ -95,7 +111,11 @@ func HoloGirlsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		}
 	})
 
-	siteCollector.Visit("https://www.hologirlsvr.com/Models")
+	if singleSceneURL != "" {
+		sceneCollector.Visit(singleSceneURL)
+	} else {
+		siteCollector.Visit("https://www.hologirlsvr.com/Models")
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -105,5 +125,5 @@ func HoloGirlsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 }
 
 func init() {
-	registerScraper("hologirlsvr", "HoloGirlsVR", "https://pbs.twimg.com/profile_images/836310876797837312/Wb3-FTxD_200x200.jpg", HoloGirlsVR)
+	registerScraper("hologirlsvr", "HoloGirlsVR", "https://pbs.twimg.com/profile_images/836310876797837312/Wb3-FTxD_200x200.jpg", "hologirlsvr.com", HoloGirlsVR)
 }

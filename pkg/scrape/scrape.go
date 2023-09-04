@@ -78,8 +78,8 @@ func getScrapeCacheDir() string {
 	return common.ScrapeCacheDir
 }
 
-func registerScraper(id string, name string, avatarURL string, f models.ScraperFunc) {
-	models.RegisterScraper(id, name, avatarURL, f)
+func registerScraper(id string, name string, avatarURL string, domain string, f models.ScraperFunc) {
+	models.RegisterScraper(id, name, avatarURL, domain, f)
 }
 
 func logScrapeStart(id string, name string) {
@@ -158,4 +158,7 @@ func getTextFromHTMLWithSelector(data string, sel string) string {
 		log.Fatal(err)
 	}
 	return strings.TrimSpace(doc.Find(sel).Text())
+}
+func CreateCollector(domains ...string) *colly.Collector {
+	return createCollector(domains...)
 }

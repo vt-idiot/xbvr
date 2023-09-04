@@ -13,7 +13,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func StasyQVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
+func StasyQVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	scraperID := "stasyqvr"
 	siteID := "StasyQVR"
@@ -70,8 +70,18 @@ func StasyQVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 		sc.TrailerSrc = `http://stasyqvr.com/deovr_feed/json/id/` + sc.SiteID
 
 		// Cast
-		e.ForEach(`div.video-info div.model-one a h2`, func(id int, e *colly.HTMLElement) {
-			sc.Cast = append(sc.Cast, strings.TrimSpace(e.Text))
+		sc.ActorDetails = make(map[string]models.ActorDetails)
+		e.ForEach(`div.video-info div.model-one a`, func(id int, e *colly.HTMLElement) {
+			name := ""
+			imgUrl := ""
+			e.ForEach(`h2`, func(id int, e *colly.HTMLElement) {
+				name = strings.TrimSpace(e.Text)
+				sc.Cast = append(sc.Cast, name)
+			})
+			e.ForEach(`img`, func(id int, e *colly.HTMLElement) {
+				imgUrl = e.Attr("src")
+			})
+			sc.ActorDetails[name] = models.ActorDetails{ProfileUrl: e.Request.AbsoluteURL(e.Attr("href")), ImageUrl: imgUrl}
 		})
 
 		// Date
@@ -118,7 +128,13 @@ func StasyQVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 		}
 	})
 
-	siteCollector.Visit("https://stasyqvr.com/virtualreality/list")
+	if singleSceneURL != "" {
+		ctx := colly.NewContext()
+		ctx.Put("duration", 0)
+		sceneCollector.Request("GET", singleSceneURL, nil, ctx, nil)
+	} else {
+		siteCollector.Visit("https://stasyqvr.com/virtualreality/list")
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -128,5 +144,5 @@ func StasyQVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out cha
 }
 
 func init() {
-	registerScraper("stasyqvr", "StasyQVR", "https://stasyqvr.com/s/images/apple-touch-icon.png", StasyQVR)
+	registerScraper("stasyqvr", "StasyQVR", "https://stasyqvr.com/s/images/apple-touch-icon.png", "stasyqvr.com", StasyQVR)
 }

@@ -1,12 +1,14 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 
 	restfulspec "github.com/emicklei/go-restful-openapi/v2"
 	"github.com/emicklei/go-restful/v3"
+	"github.com/xbapps/xbvr/pkg/models"
 	"github.com/xbapps/xbvr/pkg/tasks"
 )
 
@@ -20,8 +22,27 @@ type RequestScrapeTPDB struct {
 	SceneUrl string `json:"sceneUrl"`
 }
 
+type RequestSingleScrape struct {
+	Site           string                            `json:"site"`
+	SceneUrl       string                            `json:"sceneurl"`
+	AdditionalInfo []RequestSingleScrapeAdditionInfo `json:"additionalinfo"`
+}
+
+type RequestSingleScrapeAdditionInfo struct {
+	FieldName   string `json:"fieldName"`
+	FieldPrompt string `json:"fieldPrompt"`
+	Placeholder string `json:"placeholder"`
+	FieldValue  string `json:"fieldValue"`
+	Required    bool   `json:"required"`
+	Type        string `json:"type"`
+}
 type ResponseBackupBundle struct {
 	Response string `json:"status"`
+}
+
+type ResponseSceneScrape struct {
+	Response string       `json:"status"`
+	Scene    models.Scene `json:"scene"`
 }
 
 type TaskResource struct{}
@@ -49,6 +70,10 @@ func (i TaskResource) WebService() *restful.WebService {
 
 	ws.Route(ws.GET("/scrape").To(i.scrape).
 		Metadata(restfulspec.KeyOpenAPITags, tags))
+
+	ws.Route(ws.POST("/singlescrape").To(i.singleScrape).
+		Metadata(restfulspec.KeyOpenAPITags, tags).
+		Writes(ResponseSceneScrape{}))
 
 	ws.Route(ws.GET("/index").To(i.index).
 		Metadata(restfulspec.KeyOpenAPITags, tags))
@@ -107,7 +132,20 @@ func (i TaskResource) scrape(req *restful.Request, resp *restful.Response) {
 	if qSiteID == "" {
 		qSiteID = "_enabled"
 	}
-	go tasks.Scrape(qSiteID)
+	go tasks.Scrape(qSiteID, "", "")
+}
+func (i TaskResource) singleScrape(req *restful.Request, resp *restful.Response) {
+	var scrapeParams RequestSingleScrape
+	req.ReadEntity(&scrapeParams)
+	additionalInfo, _ := json.Marshal(scrapeParams.AdditionalInfo)
+
+	newScene := tasks.ScrapeSingleScene(scrapeParams.Site, scrapeParams.SceneUrl, string(additionalInfo))
+
+	createResp := &ResponseSceneScrape{
+		Response: "OK",
+		Scene:    newScene,
+	}
+	resp.WriteHeaderAndEntity(http.StatusOK, createResp)
 }
 
 func (i TaskResource) exportAllFunscripts(req *restful.Request, resp *restful.Response) {
@@ -131,10 +169,13 @@ func (i TaskResource) backupBundle(req *restful.Request, resp *restful.Response)
 	inclVolumes, _ := strconv.ParseBool(req.QueryParameter("inclVolumes"))
 	inclSites, _ := strconv.ParseBool(req.QueryParameter("inclSites"))
 	inclActions, _ := strconv.ParseBool(req.QueryParameter("inclActions"))
+	inclExtRefs, _ := strconv.ParseBool(req.QueryParameter("inclExtRefs"))
+	inclActors, _ := strconv.ParseBool(req.QueryParameter("inclActors"))
+	inclActorActions, _ := strconv.ParseBool(req.QueryParameter("inclActorActions"))
 	playlistId := req.QueryParameter("playlistId")
 	download := req.QueryParameter("download")
 
-	bundle := tasks.BackupBundle(inclAllSites, onlyIncludeOfficalSites, inclScenes, inclFileLinks, inclCuepoints, inclHistory, inclPlaylists, inclActorAkas, inclTagGroups, inclVolumes, inclSites, inclActions, playlistId, "", "")
+	bundle := tasks.BackupBundle(inclAllSites, onlyIncludeOfficalSites, inclScenes, inclFileLinks, inclCuepoints, inclHistory, inclPlaylists, inclActorAkas, inclTagGroups, inclVolumes, inclSites, inclActions, inclExtRefs, inclActors, inclActorActions, playlistId, "", "")
 	if download == "true" {
 		resp.WriteHeaderAndEntity(http.StatusOK, ResponseBackupBundle{Response: "Ready to Download from http://xxx.xxx.xxx.xxx:9999/download/xbvr-content-bundle.json"})
 	} else {

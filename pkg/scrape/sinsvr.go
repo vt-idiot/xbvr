@@ -14,7 +14,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func SinsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
+func SinsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
 	defer wg.Done()
 	scraperID := "sinsvr"
 	siteID := "SinsVR"
@@ -62,6 +62,7 @@ func SinsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 		sc.TrailerSrc = string(strParams)
 
 		//Cast and Released
+		sc.ActorDetails = make(map[string]models.ActorDetails)
 		e.ForEach(`.video-detail__specs div.cell`, func(id int, e *colly.HTMLElement) {
 			c := strings.TrimSpace(e.Text)
 			// Cast
@@ -69,6 +70,10 @@ func SinsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 				e.ForEach(`.cell a`, func(id int, e *colly.HTMLElement) {
 					cast := strings.Split(e.Text, ",")
 					sc.Cast = append(sc.Cast, cast...)
+					if len(cast) > 1 {
+						sc.ActorDetails[strings.TrimSpace(e.Text)] = models.ActorDetails{Source: sc.ScraperID + " scrape", ProfileUrl: e.Request.AbsoluteURL(e.Attr("href"))}
+					}
+					sc.ActorDetails[strings.TrimSpace(e.Text)] = models.ActorDetails{Source: sc.ScraperID + " scrape", ProfileUrl: e.Request.AbsoluteURL(e.Attr("href"))}
 				})
 			} else {
 				// Released - Date Oct 19, 2019
@@ -135,8 +140,12 @@ func SinsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 		}
 	})
 
-	siteCollector.Visit("https://xsinsvr.com/studio/sinsvr/videos")
-	siteCollector.Visit("https://xsinsvr.com/studio/billie-star/videos")
+	if singleSceneURL != "" {
+		sceneCollector.Visit(singleSceneURL)
+	} else {
+		siteCollector.Visit("https://xsinsvr.com/studio/sinsvr/videos")
+		siteCollector.Visit("https://xsinsvr.com/studio/billie-star/videos")
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -146,5 +155,5 @@ func SinsVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<
 }
 
 func init() {
-	registerScraper("sinsvr", "SinsVR", "https://assets.xsinsvr.com/logo.black.svg", SinsVR)
+	registerScraper("sinsvr", "SinsVR", "https://assets.xsinsvr.com/logo.black.svg", "xsinsvr.com", SinsVR)
 }

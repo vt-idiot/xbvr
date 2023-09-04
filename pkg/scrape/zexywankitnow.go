@@ -13,7 +13,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func TwoWebMediaSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, scraperID string, siteID string, URL string) error {
+func TwoWebMediaSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, scraperID string, siteID string, URL string) error {
 	defer wg.Done()
 	logScrapeStart(scraperID, siteID)
 
@@ -93,12 +93,14 @@ func TwoWebMediaSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, 
 
 		// Cast & Tags
 		// Note: Cast/Tags links are currently all inside the same div element...
+		sc.ActorDetails = make(map[string]models.ActorDetails)
 		e.ForEach(`div.container.pt-5 p.text-muted > a`, func(id int, e *colly.HTMLElement) {
 			tmpURLParts := reCastTags.FindStringSubmatch(e.Attr("href"))
 			if len(tmpURLParts[1]) > 0 {
 				if tmpURLParts[1] == "models" {
 					// Cast
 					sc.Cast = append(sc.Cast, strings.TrimSpace(e.Text))
+					sc.ActorDetails[strings.TrimSpace(e.Text)] = models.ActorDetails{Source: sc.ScraperID + " scrape", ProfileUrl: e.Attr("href")}
 				} else if tmpURLParts[1] == "videos" {
 					// Tags
 					tmpTagParts := reTagCat.FindStringSubmatch(e.Text)
@@ -173,7 +175,11 @@ func TwoWebMediaSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, 
 		}
 	})
 
-	siteCollector.Visit(URL)
+	if singleSceneURL != "" {
+		sceneCollector.Visit(singleSceneURL)
+	} else {
+		siteCollector.Visit(URL)
+	}
 
 	if updateSite {
 		updateSiteLastUpdate(scraperID)
@@ -182,15 +188,15 @@ func TwoWebMediaSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, 
 	return nil
 }
 
-func WankitNowVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
-	return TwoWebMediaSite(wg, updateSite, knownScenes, out, "wankitnowvr", "WankitNowVR", "https://wankitnowvr.com/videos/")
+func WankitNowVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+	return TwoWebMediaSite(wg, updateSite, knownScenes, out, singleSceneURL, "wankitnowvr", "WankitNowVR", "https://wankitnowvr.com/videos/")
 }
 
-func ZexyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene) error {
-	return TwoWebMediaSite(wg, updateSite, knownScenes, out, "zexyvr", "ZexyVR", "https://zexyvr.com/videos/")
+func ZexyVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
+	return TwoWebMediaSite(wg, updateSite, knownScenes, out, singleSceneURL, "zexyvr", "ZexyVR", "https://zexyvr.com/videos/")
 }
 
 func init() {
-	registerScraper("wankitnowvr", "WankitNowVR", "https://mcdn.vrporn.com/files/20190103150250/wankitnow-profile.jpg", WankitNowVR)
-	registerScraper("zexyvr", "ZexyVR", "https://mcdn.vrporn.com/files/20210617065837/zexyvr-profile-400x400.jpg", ZexyVR)
+	registerScraper("wankitnowvr", "WankitNowVR", "https://mcdn.vrporn.com/files/20190103150250/wankitnow-profile.jpg", "wankitnowvr.com", WankitNowVR)
+	registerScraper("zexyvr", "ZexyVR", "https://mcdn.vrporn.com/files/20210617065837/zexyvr-profile-400x400.jpg", "wankitnowvr.com", ZexyVR)
 }
