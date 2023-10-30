@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
 	"github.com/xbapps/xbvr/pkg/models"
-	"github.com/go-resty/resty/v2"
 )
 
 func ScrapeR18D(out *[]models.ScrapedScene, queryString string) error {
@@ -27,6 +27,7 @@ func ScrapeR18D(out *[]models.ScrapedScene, queryString string) error {
 			sc.Title = strings.Replace(strings.TrimSpace(html.UnescapeString(gjson.Get(JsonMetadata, "title_en").String())), "[VR] ", "", -1)
 		} else {
 			sc.Title = gjson.Get(JsonMetadata, "content_id").String()
+			sc.Synopsis = gjson.Get(JsonMetadata, "title_en").String()
 		}
 
 		// Studio
@@ -70,7 +71,15 @@ func ScrapeR18D(out *[]models.ScrapedScene, queryString string) error {
 		joshikosei := "Academy Uniform"
 
 		taglist := gjson.Get(JsonMetadata, "categories.#.name_en")
+		quality := "VR"
+		has8KVR := false
 		for _, name := range taglist.Array() {
+			if name.Str == "8KVR" {
+				has8KVR = true
+				quality = "8K"
+			} else if name.Str == "High-Quality VR" && !has8KVR {
+				quality = "HQ"
+			}
 			if !skiptags[name.Str] {
 				if name.Str == joshikosei {
 					sc.Tags = append(sc.Tags, "schoolgirl")
@@ -92,6 +101,21 @@ func ScrapeR18D(out *[]models.ScrapedScene, queryString string) error {
 			sc.SceneID = dvdID
 			sc.SiteID = dvdID
 			sc.Site = strings.Split(dvdID, "-")[0]
+		}
+
+		// Filler Filenames
+		resolutions := []string{"vmb"}
+		if quality == "HQ" {
+			resolutions = []string{"vrv1uhqe"}
+		} else if quality == "8K" {
+			resolutions = []string{"vrv1uhqf", "vrv18khia"}
+		}
+		for r := range resolutions {
+			parts := []string{"", "1", "2", "3"}
+			for p := range parts {
+				fn := content_id + resolutions[r] + parts[p] + ".mp4"
+				sc.Filenames = append(sc.Filenames, fn)
+			}
 		}
 
 		if sc.SceneID != "" {
