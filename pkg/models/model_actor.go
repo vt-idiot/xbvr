@@ -88,6 +88,7 @@ type ResponseActorList struct {
 	CountDownloaded    int     `json:"count_downloaded"`
 	CountNotDownloaded int     `json:"count_not_downloaded"`
 	CountHidden        int     `json:"count_hidden"`
+	Offset             int     `json:"offset"`
 }
 
 type ActorLink struct {
@@ -99,8 +100,7 @@ func (i *Actor) Save() error {
 	db, _ := GetDB()
 	defer db.Close()
 
-	var err error
-	err = retry.Do(
+	var err error = retry.Do(
 		func() error {
 			err := db.Save(&i).Error
 			if err != nil {
@@ -200,9 +200,8 @@ func QueryActors(r RequestActorList, enablePreload bool) ResponseActorList {
 			truefalse = false
 			fieldName = fieldName[1:]
 		}
-		if strings.HasPrefix(fieldName, "&") { // & prefix indicate must have filtering
-			fieldName = fieldName[1:]
-		}
+
+		fieldName = strings.TrimPrefix(fieldName, "&") // & prefix indicate must have filtering
 
 		value := ""
 		where := ""
@@ -257,6 +256,12 @@ func QueryActors(r RequestActorList, enablePreload bool) ResponseActorList {
 				where = "name like 'aka:%'"
 			} else {
 				where = "name not like 'aka:%'"
+			}
+		case "In An Aka Group":
+			if truefalse {
+				where = "(select count(*) from actor_akas " + " where actor_akas.actor_id = actors.id) > 0"
+			} else {
+				where = "(select count(*) from actor_akas " + " where actor_akas.actor_id = actors.id) = 0"
 			}
 		case "Has Image":
 			if truefalse {
@@ -340,10 +345,6 @@ func QueryActors(r RequestActorList, enablePreload bool) ResponseActorList {
 		tx = tx.Where("actors.name NOT IN (?)", excludedCast)
 	}
 
-	if r.JumpTo.OrElse("") != "" {
-		tx = tx.Where("actors.name > ?", r.JumpTo.OrElse(""))
-	}
-
 	if r.MinAge.OrElse(0) > 18 || r.MaxAge.OrElse(100) < 100 {
 		startRange := time.Now().AddDate(r.MinAge.OrElse(0)*-1, 0, 0)
 		endRange := time.Now().AddDate(r.MaxAge.OrElse(0)*-1, 0, 0)
@@ -380,10 +381,10 @@ func QueryActors(r RequestActorList, enablePreload bool) ResponseActorList {
 		tx = tx.Where("actors.star_rating <= ?", r.MaxRating.OrElse(5))
 	}
 	if r.MinSceneRating.OrElse(0) > 0 {
-		tx = tx.Where("(select AVG(s.star_rating) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 ) >= ?", r.MinSceneRating.OrElse(0))
+		tx = tx.Where("(select AVG(s.star_rating) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 and is_hidden=0) >= ?", r.MinSceneRating.OrElse(0))
 	}
 	if r.MaxSceneRating.OrElse(5) < 5 {
-		tx = tx.Where("(select AVG(s.star_rating) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 ) <= ?", r.MaxSceneRating.OrElse(50))
+		tx = tx.Where("(select AVG(s.star_rating) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 and is_hidden=0) <= ?", r.MaxSceneRating.OrElse(50))
 	}
 	var sites []string
 	var mustHaveSites []string
@@ -431,7 +432,7 @@ func QueryActors(r RequestActorList, enablePreload bool) ResponseActorList {
 			Order("actors.star_rating asc")
 	case "scene_rating_desc":
 		tx = tx.
-			Order("(select AVG(s.star_rating) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 ) desc, (select count(*) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 ) desc, (select count(*) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id) desc")
+			Order("(select AVG(s.star_rating) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0  and is_hidden=0) desc, (select count(*) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 and is_hidden=0) desc, (select count(*) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id) desc")
 	case "scene_release_desc":
 		tx = tx.
 			Order("IFNULL((select max(s.release_date) from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id),'1970-01-01') DESC, actors.avail_count desc, actors.`count` desc")
@@ -459,6 +460,12 @@ func QueryActors(r RequestActorList, enablePreload bool) ResponseActorList {
 		} else {
 			tx = tx.Order("random()")
 		}
+	case "scene_count_desc":
+		tx = tx.
+			Order("actors.`count` desc, actors.name")
+	case "scene_available_desc":
+		tx = tx.
+			Order("actors.`avail_count` desc, actors.name")
 	default:
 		tx = tx.Order("name asc")
 	}
@@ -470,8 +477,23 @@ func QueryActors(r RequestActorList, enablePreload bool) ResponseActorList {
 		return db.Order("release_date DESC").Where("is_hidden = 0")
 	})
 
+	if r.JumpTo.OrElse("") != "" {
+		// if we want to jump to actors starting with a specific letter, then we need to work out the offset to them
+		cnt := 0
+		txList := tx.Select(`distinct actors.name`)
+		txList.Find(&out.Actors)
+		for idx, actor := range out.Actors {
+			if strings.ToLower(actor.Name) >= strings.ToLower(r.JumpTo.OrElse("")) {
+				break
+			}
+			cnt = idx
+		}
+		offset = (cnt / limit) * limit
+	}
+	out.Offset = offset
+
 	tx = tx.Select(`distinct actors.*, 
-	(select AVG(s.star_rating) scene_avg from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 ) as scene_rating_average	
+	(select AVG(s.star_rating) scene_avg from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 and is_hidden=0) as scene_rating_average	
 	`)
 
 	tx.Limit(limit).
@@ -509,7 +531,7 @@ func (o *Actor) GetIfExistByPKWithSceneAvg(id uint) error {
 
 	tx := db.Model(&Actor{})
 	tx = tx.Select(`actors.*, 
-	(select AVG(s.star_rating) scene_avg from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 ) as scene_rating_average`)
+	(select AVG(s.star_rating) scene_avg from scene_cast sc join scenes s on s.id=sc.scene_id where sc.actor_id =actors.id and s.star_rating > 0 and is_hidden=0) as scene_rating_average`)
 
 	return tx.
 		Preload("Scenes", func(db *gorm.DB) *gorm.DB {

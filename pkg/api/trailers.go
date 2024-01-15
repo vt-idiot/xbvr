@@ -3,8 +3,10 @@ package api
 import (
 	"encoding/json"
 	"html"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"regexp"
 	"strings"
 
@@ -21,7 +23,7 @@ func LoadHeresphereScene(url string) HeresphereVideo {
 		return HeresphereVideo{}
 	}
 
-	responseData, err := ioutil.ReadAll(response.Body)
+	responseData, err := io.ReadAll(response.Body)
 	if err != nil {
 		log.Errorf("Error from %s %s", url, err)
 	}
@@ -41,7 +43,7 @@ func LoadDeovrScene(url string) DeoScene {
 		return DeoScene{}
 	}
 
-	responseData, err := ioutil.ReadAll(response.Body)
+	responseData, err := io.ReadAll(response.Body)
 	if err != nil {
 		log.Errorf("Error from %s %s", url, err)
 	}
@@ -70,7 +72,7 @@ func ScrapeHtml(scrapeParams string) models.VideoSourceResponse {
 				origURLtmp := e.Attr(params.ContentPath)
 				quality := e.Attr(params.QualityPath)
 				if origURLtmp != "" {
-					if params.ContentBaseUrl != "" {
+					if params.ContentBaseUrl != "" && !strings.HasPrefix(origURLtmp, params.ContentBaseUrl) {
 						origURLtmp = params.ContentBaseUrl + origURLtmp
 					}
 					srcs = append(srcs, models.VideoSource{URL: origURLtmp, Quality: quality})
@@ -78,11 +80,12 @@ func ScrapeHtml(scrapeParams string) models.VideoSourceResponse {
 			} else {
 				//  extract match with regex expression if one was specified
 				re := regexp.MustCompile(params.ExtractRegex)
-				r := re.FindStringSubmatch(e.Text)
-				if len(r) > 0 {
-					if r[1] != "" {
-						srcs = append(srcs, models.VideoSource{URL: r[1], Quality: "unknown"})
-					}
+				results := re.FindAllStringSubmatch(e.Text, -1)
+				for _, result := range results {
+					parsedURL, _ := url.Parse(result[0])
+					filename := path.Base(parsedURL.Path)
+					baseFilename := strings.TrimSuffix(filename, path.Ext(filename))
+					srcs = append(srcs, models.VideoSource{URL: result[1], Quality: baseFilename})
 				}
 			}
 		})
@@ -135,7 +138,7 @@ func LoadJson(scrapeParams string) models.VideoSourceResponse {
 		return models.VideoSourceResponse{}
 	}
 
-	responseData, err := ioutil.ReadAll(response.Body)
+	responseData, err := io.ReadAll(response.Body)
 	if err != nil {
 		log.Errorf("Error from %s %s", params.SceneUrl, err)
 	}
@@ -153,7 +156,8 @@ func extractFromJson(inputJson string, params models.TrailerScrape, srcs []model
 	if params.RecordPath != "" {
 		u := gjson.Get(JsonMetadata, params.RecordPath)
 		u.ForEach(func(key, value gjson.Result) bool {
-			url := gjson.Get(value.String(), params.ContentPath).String()
+			url := params.ContentBaseUrl
+			url += gjson.Get(value.String(), params.ContentPath).String()
 			quality := gjson.Get(value.String(), params.QualityPath).String()
 			encoding := ""
 			if params.EncodingPath != "" {
@@ -174,7 +178,7 @@ func extractFromJson(inputJson string, params models.TrailerScrape, srcs []model
 			if params.EncodingPath != "" {
 				encoding = gjson.Get(JsonMetadata, params.EncodingPath).String() + "-"
 			}
-			if params.ContentBaseUrl != "" {
+			if params.ContentBaseUrl != "" && !strings.HasPrefix(url, params.ContentBaseUrl) {
 				if params.ContentBaseUrl[len(params.ContentBaseUrl)-1:] == "/" && string(url[0]) == "/" {
 					url = params.ContentBaseUrl + url[1:]
 				} else {

@@ -2,7 +2,6 @@ package models
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -598,20 +597,18 @@ func (scrapeRules ActorScraperConfig) buildGenericActorScraperRules() {
 
 	siteDetails = GenericScraperRuleSet{}
 	siteDetails.Domain = "vrhush.com"
-	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "image_url", Selector: `img[id="model-thumbnail"]`, ResultType: "attr", Attribute: "src", PostProcessing: []PostProcessing{{Function: "AbsoluteUrl"}}})
-	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "biography", Selector: `div[id="model-info-block"] p`})
-	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "ethnicity", Selector: `ul.model-attributes li:contains("Ethnicity")`, PostProcessing: []PostProcessing{{Function: "RegexString", Params: []string{`Ethnicity (.*)`, "1"}}}})
-	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "eye_color", Selector: `ul.model-attributes li:contains("Eye Color")`, PostProcessing: []PostProcessing{{Function: "RegexString", Params: []string{`Eye Color (.*)`, "1"}}}})
-	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{
-		XbvrField: "height", Selector: `ul.model-attributes li:contains("Height")`,
-		PostProcessing: []PostProcessing{{Function: "RegexString", Params: []string{`^(Height )(.+)`, "2"}}, {Function: "Feet+Inches to cm", Params: []string{`(\d+)\'(\d+)\"`, "1", "2"}}},
-	})
-	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "gender", Selector: `ul.model-attributes li:contains("Gender")`, PostProcessing: []PostProcessing{{Function: "RegexString", Params: []string{`Gender (.*)`, "1"}}}})
-	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "hair_color", Selector: `ul.model-attributes li:contains("Hair Color")`, PostProcessing: []PostProcessing{{Function: "RegexString", Params: []string{`Hair Color (.*)`, "1"}}}})
-	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{
-		XbvrField: "weight", Selector: `ul.model-attributes li:contains("Weight")`,
-		PostProcessing: []PostProcessing{{Function: "RegexString", Params: []string{`^(Weight )(.+)`, "2"}}, {Function: "lbs to kg"}},
-	})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "gender", Selector: `script[Id="__NEXT_DATA__"]`, PostProcessing: []PostProcessing{{Function: "jsonString", Params: []string{"props.pageProps.model.gender"}}}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "image_url", Selector: `.thumbnail img`, ResultType: "attr", Attribute: "src", PostProcessing: []PostProcessing{{Function: "AbsoluteUrl"}}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "biography", Selector: `script[Id="__NEXT_DATA__"]`, PostProcessing: []PostProcessing{{Function: "jsonString", Params: []string{"props.pageProps.model.Bio"}}}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "eye_color", Selector: `script[Id="__NEXT_DATA__"]`, PostProcessing: []PostProcessing{{Function: "jsonString", Params: []string{"props.pageProps.model.eyes"}}}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "hair_color", Selector: `script[Id="__NEXT_DATA__"]`, PostProcessing: []PostProcessing{{Function: "jsonString", Params: []string{"props.pageProps.model.hair"}}}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "ethnicity", Selector: `script[Id="__NEXT_DATA__"]`, PostProcessing: []PostProcessing{{Function: "jsonString", Params: []string{"props.pageProps.model.race"}}}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "height", Selector: `script[Id="__NEXT_DATA__"]`, PostProcessing: []PostProcessing{
+		{Function: "jsonString", Params: []string{"props.pageProps.model.height"}},
+		{Function: "Feet+Inches to cm", Params: []string{`(\d+)\'(\d+)\"`, "1", "2"}}}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "weight", Selector: `script[Id="__NEXT_DATA__"]`, PostProcessing: []PostProcessing{
+		{Function: "jsonString", Params: []string{"props.pageProps.model.weight"}},
+		{Function: "lbs to kg"}}})
 	scrapeRules.GenericActorScrapingConfig["vrhush scrape"] = siteDetails
 
 	siteDetails.Domain = "vrallure.com"
@@ -859,6 +856,10 @@ func (scrapeRules ActorScraperConfig) buildGenericActorScraperRules() {
 	})
 	scrapeRules.GenericActorScrapingConfig["realjamvr scrape"] = siteDetails
 
+	// use the site rules just setup for realjamvr, just need to update the Domain to use
+	siteDetails.Domain = "porncornvr.com"
+	scrapeRules.GenericActorScrapingConfig["porncornvr scrape"] = siteDetails
+
 	siteDetails = GenericScraperRuleSet{}
 	siteDetails.Domain = "povr.com"
 	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "image_url", Selector: `script[type="application/ld+json"]`, PostProcessing: []PostProcessing{{Function: "jsonString", Params: []string{"image"}}}})
@@ -971,6 +972,45 @@ func (scrapeRules ActorScraperConfig) buildGenericActorScraperRules() {
 	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "nationality", Selector: `.about-me-mobile .stars-params-title:contains("Nationality:") + .stars-params-value`, PostProcessing: []PostProcessing{{Function: "Lookup Country"}}})
 	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "hair_color", Selector: `.about-me-mobile .stars-params-title:contains("Hair Color:") + .stars-params-value`})
 	scrapeRules.GenericActorScrapingConfig["vrspy scrape"] = siteDetails
+
+	siteDetails = GenericScraperRuleSet{}
+	siteDetails.Domain = "www.javdatabase.com"
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "image_url", Selector: `img[data-src^="https://www.javdatabase.com/idolimages/full/"]`, ResultType: "attr", Attribute: "data-src", PostProcessing: []PostProcessing{
+		{Function: "AbsoluteUrl"},
+	}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "images", Selector: `a[href^="https://pics.dmm.co.jp/digital/video/"]:not([href^="https://pics.dmm.co.jp/digital/video/mdj010/"])`, ResultType: "attr", Attribute: "href", PostProcessing: []PostProcessing{
+		{Function: "AbsoluteUrl"},
+	}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "biography", Selector: `div[id="biography"] > div`, ResultType: "text"})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "hair_color", Selector: `div > b:contains("Hair Color(s):") + a`, ResultType: "text"})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "birth_date", Selector: `div > b:contains("DOB:") + a`, ResultType: "text"})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "height", Selector: `div > b:contains("Height:") + a`, ResultType: "text", PostProcessing: []PostProcessing{
+		{Function: "RegexString", Params: []string{`\d+`, "0"}},
+	}})
+
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "band_size", Selector: `div > b:contains("Measurements:")`, ResultType: "text", PostProcessing: []PostProcessing{
+		{Function: "DOMNextText"},
+		{Function: "RegexString", Params: []string{`(\d+)-(\d+)-(\d+)`, "1"}},
+	}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "cup_size", Selector: `div > b:contains("Cup:") + a`, ResultType: "text"})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "waist_size", Selector: `div > b:contains("Measurements:")`, ResultType: "text", PostProcessing: []PostProcessing{
+		{Function: "DOMNextText"},
+		{Function: "RegexString", Params: []string{`(\d+)-(\d+)-(\d+)`, "2"}},
+	}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "hip_size", Selector: `div > b:contains("Measurements:")`, ResultType: "text", PostProcessing: []PostProcessing{
+		{Function: "DOMNextText"},
+		{Function: "RegexString", Params: []string{`(\d+)-(\d+)-(\d+)`, "3"}},
+	}})
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "aliases", Selector: `div > p > b:contains("Alt:")`, ResultType: "text", PostProcessing: []PostProcessing{
+		{Function: "DOMNextText"},
+	}})
+
+	siteDetails.SiteRules = append(siteDetails.SiteRules, GenericActorScraperRule{XbvrField: "gender", Selector: `div > p:contains("Tags")`, ResultType: "text", PostProcessing: []PostProcessing{
+		{Function: "SetWhenValueContains", Params: []string{"Trans", "Transgender Female"}},
+		{Function: "SetWhenValueNotContains", Params: []string{"Trans", "Female"}},
+	}})
+
+	scrapeRules.GenericActorScrapingConfig["javdatabase scrape"] = siteDetails
 }
 
 // Loads custom rules from actor_scrapers_examples.json
@@ -981,7 +1021,7 @@ func (scrapeRules ActorScraperConfig) getCustomRules() {
 	//	this is to give examples, it is not loaded
 	fName := filepath.Join(common.AppDir, "actor_scraper_config_examples.json")
 	out, _ := json.MarshalIndent(scrapeRules, "", "  ")
-	ioutil.WriteFile(fName, out, 0644)
+	os.WriteFile(fName, out, 0644)
 
 	// now check if the user has any custom rules
 	fName = filepath.Join(common.AppDir, "actor_scraper_custom_config.json")
@@ -1021,12 +1061,12 @@ func (scrapeRules ActorScraperConfig) getCustomRules() {
 			exampleConfig.StashSceneMatching["siteid"] = stashMatch
 
 			out, _ := json.MarshalIndent(exampleConfig, "", "  ")
-			ioutil.WriteFile(fName, out, 0644)
+			os.WriteFile(fName, out, 0644)
 		}
 	} else {
 		// load any custom rules and update the builtin list
 		var customScrapeRules ActorScraperConfig
-		b, err := ioutil.ReadFile(fName)
+		b, err := os.ReadFile(fName)
 		if err != nil {
 			return
 		}
@@ -1045,6 +1085,7 @@ func (scrapeRules ActorScraperConfig) getSiteUrlMatchingRules() {
 
 	var sites []Site
 
+	// if the scene_url in xbvr and stash typically matches, then no special rules required
 	scrapeRules.StashSceneMatching["allvrporn-vrporn"] = StashSiteConfig{StashId: "44fd483b-85eb-4b22-b7f2-c92c1a50923a"}
 	scrapeRules.StashSceneMatching["bvr"] = StashSiteConfig{StashId: "1ffbd972-7d69-4ccb-b7da-c6342a9c3d70"}
 	scrapeRules.StashSceneMatching["cuties-vr"] = StashSiteConfig{StashId: "1e5240a8-29b3-41ed-ae28-fc9231eac449"}
@@ -1077,8 +1118,11 @@ func (scrapeRules ActorScraperConfig) getSiteUrlMatchingRules() {
 	scrapeRules.StashSceneMatching["vrsolos"] = StashSiteConfig{StashId: "b2d048da-9180-4e43-b41a-bdb4d265c8ec"}
 	scrapeRules.StashSceneMatching["vrspy"] = StashSiteConfig{StashId: "513001ef-dff4-476d-840d-e22ef27e81ed"}
 	scrapeRules.StashSceneMatching["wankitnowvr"] = StashSiteConfig{StashId: "acb1ed8f-4967-4c5a-b16a-7025bdeb75c5"}
+	scrapeRules.StashSceneMatching["porncornvr"] = StashSiteConfig{StashId: "9ecb1d29-64e8-4336-9bd2-5dda53341e29"}
 
 	scrapeRules.StashSceneMatching["wetvr"] = StashSiteConfig{StashId: "981887d6-da48-4dfc-88d1-7ed13a2754f2"}
+
+	// setup special rules to match scenes in xbvr and stashdb, rather than assuming scene_urls match
 	scrapeRules.StashSceneMatching["wankzvr"] = StashSiteConfig{
 		StashId: "b04bca51-15ea-45ab-80f6-7b002fd4a02d",
 		Rules:   []SceneMatchRule{{XbvrField: "scene_id", XbvrMatch: `-\d+$`, XbvrMatchResultPosition: 0, StashRule: `(povr|wankzvr).com\/(.*)(-\d*?)\/?$`, StashMatchResultPosition: 3}},
@@ -1130,6 +1174,13 @@ func (scrapeRules ActorScraperConfig) getSiteUrlMatchingRules() {
 	scrapeRules.StashSceneMatching["realjamvr"] = StashSiteConfig{
 		StashId: "2059fbf9-94fe-4986-8565-2a7cc199636a",
 		Rules:   []SceneMatchRule{{XbvrField: "scene_url", XbvrMatch: `(realjamvr.com)(.*)\/(\d*-?)([^\/]+)\/?$`, XbvrMatchResultPosition: 4, StashRule: `(realjamvr.com)(.*)\/(\d*-?)([^\/]+)\/?$`, StashMatchResultPosition: 4}},
+	}
+	scrapeRules.StashSceneMatching["vrhush"] = StashSiteConfig{
+		StashId: "c85a3d13-c1b9-48d0-986e-3bfceaf0afe5",
+		// ignores optional /vrh999_ from old urls
+		Rules: []SceneMatchRule{{XbvrField: "scene_url", XbvrMatch: `\/([^\/]+)$`, XbvrMatchResultPosition: 4, StashRule: `\/((vrh\d+)_)?([^\/?]+)(?:\?.*)?$`, StashMatchResultPosition: 3}, // handle trailing query params
+			{XbvrField: "scene_url", XbvrMatch: `\/([^\/]+)$`, XbvrMatchResultPosition: 4, StashRule: `\/((vrh\d+)_)?([^\/?]+)(?:_180.*)?$`, StashMatchResultPosition: 3}, // handle _180 suffix now gone from urls
+		},
 	}
 	scrapeRules.StashSceneMatching["sexbabesvr"] = StashSiteConfig{
 		StashId: "b80d419c-4a81-44c9-ae79-d9614dd30351",

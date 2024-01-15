@@ -41,6 +41,11 @@
               {{item.duration}}m
             </b-tag>
           </div>
+          <div v-if="this.$store.state.optionsWeb.web.showScriptHeatmap && (files = getFunscripts(this.$store.state.optionsWeb.web.showAllHeatmaps))" style="padding: 0px 5px 5px">
+            <div v-if="files.length" class="heatmapFunscript">
+              <img v-for="file in files" :src="getHeatmapURL(file.id)"/>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -159,6 +164,25 @@ export default {
         this.$store.commit('overlay/showDetails', { scene: scene })
       }
       this.$store.commit('overlay/hideActorDetails')
+    },
+    getHeatmapURL (fileId) {
+      return `/api/dms/heatmap/${fileId}`
+    },
+    getFunscripts (showAll) {
+      if (showAll) {
+        return this.item.file !== null && this.item.file.filter(a => a.type === 'script' && a.has_heatmap);
+      } else {
+        if (this.item.file !== null) {
+          let script;
+          if (script = this.item.file.find((a) => a.type === 'script' && a.has_heatmap && a.is_selected_script)) {
+            return [script]
+          }
+          if (script = this.item.file.find((a) => a.type === 'script' && a.has_heatmap)) {
+            return [script]
+          }
+        }
+        return false;
+      }
     }
   }
 }
@@ -210,6 +234,8 @@ export default {
   .align-bottom-left {
     align-items: flex-end;
     justify-content: flex-end;
+    flex-wrap: wrap;
+    flex-direction: column
   }
 
   .bbox:after {
@@ -229,4 +255,16 @@ export default {
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+.heatmapFunscript {
+  width: auto;
+}
+
+.heatmapFunscript img {
+  border: 1px #888 solid;
+  width: 100%;
+  height: 15px;
+  border-radius: 0.25rem;
+}
+
 </style>

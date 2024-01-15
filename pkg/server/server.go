@@ -34,7 +34,7 @@ import (
 
 var (
 	wsAddr = common.WsAddr
-	log    = common.Log
+	log    = &common.Log
 )
 
 func authHandle(pattern string, authEnabled bool, authSecret auth.SecretProvider, handler http.Handler) {
@@ -142,6 +142,8 @@ func StartServer(version, commit, branch, date string) {
 	r.PathPrefix("/imghm/").Handler(http.StripPrefix("/imghm", hmp))
 	downloadhandler := DownloadHandler{}
 	r.PathPrefix("/download/").Handler(http.StripPrefix("/download/", downloadhandler))
+	myfileshandler := MyFilesHandler{}
+	r.PathPrefix("/myfiles/").Handler(http.StripPrefix("/myfiles/", myfileshandler))
 	r.SkipClean(true)
 
 	r.PathPrefix("/").Handler(http.DefaultServeMux)
@@ -161,7 +163,7 @@ func StartServer(version, commit, branch, date string) {
 		},
 	}
 
-	wampRouter, err := router.NewRouter(routerConfig, &log)
+	wampRouter, err := router.NewRouter(routerConfig, log)
 	if err != nil {
 		log.Fatal(err)
 	}

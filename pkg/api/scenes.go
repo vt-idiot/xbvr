@@ -320,6 +320,7 @@ func (i SceneResource) getFilters(req *restful.Request, resp *restful.Response) 
 	outAttributes = append(outAttributes, "Is Favourite")
 	outAttributes = append(outAttributes, "Is Scripted")
 	outAttributes = append(outAttributes, "Is Passthrough")
+	outAttributes = append(outAttributes, "Is Alpha Passthrough")
 	outAttributes = append(outAttributes, "In Watchlist")
 	outAttributes = append(outAttributes, "In Wishlist")
 	outAttributes = append(outAttributes, "Has Rating")
@@ -371,6 +372,7 @@ func (i SceneResource) getFilters(req *restful.Request, resp *restful.Response) 
 	outAttributes = append(outAttributes, "Has Script Download")
 	outAttributes = append(outAttributes, "Has AI Generated Script")
 	outAttributes = append(outAttributes, "Has Human Generated Script")
+	outAttributes = append(outAttributes, "Has Favourite Actor")
 	type Results struct {
 		Result string
 	}
@@ -576,6 +578,20 @@ func (i SceneResource) searchSceneIndex(req *restful.Request, resp *restful.Resp
 
 	db, _ := models.GetDB()
 	defer db.Close()
+	var scenes []models.Scene
+
+	if strings.HasPrefix(q, "http") {
+		// if searching for a link, see if it is in the external ref table for scene alternate source
+		var scene models.Scene
+		splits := strings.Split(q, "?")
+		q = splits[0]
+
+		// see if the url matches a scrapped scene
+		scene.GetIfExistURL(q)
+		if scene.ID != 0 {
+			scenes = append(scenes, scene)
+		}
+	}
 
 	idx, err := tasks.NewIndex("scenes")
 	if err != nil {
@@ -598,7 +614,6 @@ func (i SceneResource) searchSceneIndex(req *restful.Request, resp *restful.Resp
 		return
 	}
 
-	var scenes []models.Scene
 	for _, v := range searchResults.Hits {
 		var scene models.Scene
 		err := scene.GetIfExist(v.ID)
@@ -675,7 +690,7 @@ func (i SceneResource) deleteSceneCuepoint(req *restful.Request, resp *restful.R
 	db.Delete(&cuepoint)
 
 	var scene models.Scene
-	err = scene.GetIfExistByPK(uint(sceneId))
+	_ = scene.GetIfExistByPK(uint(sceneId))
 	defer db.Close()
 
 	resp.WriteHeaderAndEntity(http.StatusOK, scene)
@@ -738,7 +753,7 @@ func (i SceneResource) selectScript(req *restful.Request, resp *restful.Response
 				}
 			}
 		}
-		err = scene.GetIfExistByPK(uint(sceneId))
+		_ = scene.GetIfExistByPK(uint(sceneId))
 	}
 	db.Close()
 

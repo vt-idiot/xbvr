@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -71,6 +70,7 @@ type BackupContentBundle struct {
 	ExternalRefs  []models.ExternalReference `xbvrbackup:"externalReferences"`
 	Actors        []models.Actor             `xbvrbackup:"actors"`
 	ActionActors  []BackupActionActor        `xbvrbackup:"actionActors"`
+	Kvs           []models.KV                `xbvrbackup:"config"`
 }
 type RequestRestore struct {
 	InclAllSites     bool   `json:"allSites"`
@@ -90,6 +90,7 @@ type RequestRestore struct {
 	InclExternalRefs bool   `json:"inclExtRefs"`
 	InclActors       bool   `json:"inclActors"`
 	InclActorActions bool   `json:"inclActorActions"`
+	InclConfig       bool   `json:"inclConfig"`
 }
 
 func CleanTags() {
@@ -147,7 +148,7 @@ func sceneSliceAppender(collectedScenes *[]models.ScrapedScene, scenes <-chan mo
 	}
 }
 
-func sceneDBWriter(wg *sync.WaitGroup, i *uint64, scenes <-chan models.ScrapedScene) {
+func sceneDBWriter(wg *sync.WaitGroup, i *uint64, scenes <-chan models.ScrapedScene, processedScenes *[]models.ScrapedScene, lock *sync.Mutex) {
 	defer wg.Done()
 
 	db, _ := models.GetDB()
@@ -163,6 +164,11 @@ func sceneDBWriter(wg *sync.WaitGroup, i *uint64, scenes <-chan models.ScrapedSc
 		} else {
 			models.SceneCreateUpdateFromExternal(db, scene)
 		}
+		// Add the processed scene to the list to re/index
+		lock.Lock()
+		*processedScenes = append(*processedScenes, scene)
+		lock.Unlock()
+
 		atomic.AddUint64(i, 1)
 		if os.Getenv("DEBUG") != "" {
 			log.Printf("Saved %v", scene.SceneID)
@@ -294,9 +300,12 @@ func Scrape(toScrape string, singleSceneURL string, singeScrapeAdditionalInfo st
 		collectedScenes := make(chan models.ScrapedScene, 250)
 		var sceneCount uint64
 
+		var processedScenes []models.ScrapedScene
+		var processedScenesLock sync.Mutex
+
 		var wg sync.WaitGroup
 		wg.Add(1)
-		go sceneDBWriter(&wg, &sceneCount, collectedScenes)
+		go sceneDBWriter(&wg, &sceneCount, collectedScenes, &processedScenes, &processedScenesLock)
 
 		// Start scraping
 		if e := runScrapers(knownScenes, toScrape, true, collectedScenes, singleSceneURL, singeScrapeAdditionalInfo); e != nil {
@@ -328,11 +337,11 @@ func Scrape(toScrape string, singleSceneURL string, singeScrapeAdditionalInfo st
 			tlog.Infof("Reapplying edits")
 			ReapplyEdits()
 
-			SearchIndex()
+			IndexScrapedScenes(&processedScenes)
 
 			tlog.Infof("Scraped %v new scenes in %s",
 				sceneCount,
-				time.Now().Sub(t0).Round(time.Second))
+				time.Since(t0).Round(time.Second))
 
 		}
 	}
@@ -376,7 +385,7 @@ func ScrapeJAVR(queryString string, scraper string) {
 
 			tlog.Infof("Scraped %v new scenes in %s",
 				len(collectedScenes),
-				time.Now().Sub(t0).Round(time.Second))
+				time.Since(t0).Round(time.Second))
 		} else {
 			tlog.Infof("No new scenes scraped")
 		}
@@ -431,7 +440,7 @@ func ScrapeTPDB(apiToken string, sceneUrl string) {
 
 			tlog.Infof("Scraped %v new scenes in %s",
 				len(collectedScenes),
-				time.Now().Sub(t0).Round(time.Second))
+				time.Since(t0).Round(time.Second))
 		} else {
 			tlog.Infof("No new scenes scraped")
 		}
@@ -465,9 +474,9 @@ func ExportBundle() {
 		content, err := json.MarshalIndent(out, "", " ")
 		if err == nil {
 			fName := filepath.Join(common.DownloadDir, fmt.Sprintf("content-bundle-v1-%v.json", time.Now().Unix()))
-			err = ioutil.WriteFile(fName, content, 0644)
+			err = os.WriteFile(fName, content, 0644)
 			if err == nil {
-				tlog.Infof("Export completed in %v, file saved to %v", time.Now().Sub(t0), fName)
+				tlog.Infof("Export completed in %v, file saved to %v", time.Since(t0), fName)
 			}
 		}
 	}
@@ -513,11 +522,10 @@ func ImportBundleV1(bundleData ContentBundle) {
 
 }
 
-func BackupBundle(inclAllSites bool, onlyIncludeOfficalSites bool, inclScenes bool, inclFileLinks bool, inclCuepoints bool, inclHistory bool, inclPlaylists bool, InclActorAkas bool, inclTagGroups bool, inclVolumes bool, inclSites bool, inclActions bool, inclExtRefs bool, inclActors bool, inclActorActions bool, playlistId string, outputBundleFilename string, version string) string {
+func BackupBundle(inclAllSites bool, onlyIncludeOfficalSites bool, inclScenes bool, inclFileLinks bool, inclCuepoints bool, inclHistory bool, inclPlaylists bool, InclActorAkas bool, inclTagGroups bool, inclVolumes bool, inclSites bool, inclActions bool, inclExtRefs bool, inclActors bool, inclActorActions bool, inclConfig bool, playlistId string, outputBundleFilename string, version string) string {
 	var out BackupContentBundle
 	var content []byte
 	exportCnt := 0
-	lastMessage := time.Now()
 
 	if !models.CheckLock("scrape") {
 		models.CreateLock("scrape")
@@ -657,7 +665,7 @@ func BackupBundle(inclAllSites bool, onlyIncludeOfficalSites bool, inclScenes bo
 
 		var externalReferences []models.ExternalReference
 		if inclExtRefs {
-			lastMessage = time.Now()
+			lastMessage := time.Now()
 			db.Order("external_source").Order("id").Find(&externalReferences)
 			recCnt := 0
 			for idx, ref := range externalReferences {
@@ -701,6 +709,10 @@ func BackupBundle(inclAllSites bool, onlyIncludeOfficalSites bool, inclScenes bo
 				backupActionActorList = append(backupActionActorList, actorsActions)
 			}
 		}
+		var kvs []models.KV
+		if inclConfig {
+			db.Where("`key` not like 'lock%'").Find(&kvs)
+		}
 
 		var err error
 		out = BackupContentBundle{
@@ -719,6 +731,7 @@ func BackupBundle(inclAllSites bool, onlyIncludeOfficalSites bool, inclScenes bo
 			ExternalRefs:  externalReferences,
 			Actors:        actors,
 			ActionActors:  backupActionActorList,
+			Kvs:           kvs,
 		}
 
 		var json = jsoniter.Config{
@@ -731,7 +744,7 @@ func BackupBundle(inclAllSites bool, onlyIncludeOfficalSites bool, inclScenes bo
 
 		if err == nil {
 			fName := filepath.Join(common.DownloadDir, outputBundleFilename)
-			err = ioutil.WriteFile(fName, content, 0644)
+			err = os.WriteFile(fName, content, 0644)
 			if err == nil {
 				tlog.Infof("Backup file generated in %v, %v scenes selected, ready to download", time.Since(t0), exportCnt)
 			} else {
@@ -837,6 +850,9 @@ func RestoreBundle(request RequestRestore) {
 			}
 			if request.InclActorActions {
 				RestoreActionActors(bundleData.ActionActors, request.Overwrite, db)
+			}
+			if request.InclConfig {
+				RestoreKvs(bundleData.Kvs, db)
 			}
 
 			if request.InclScenes {
@@ -1130,7 +1146,7 @@ func RestorePlaylist(playlists []models.Playlist, overwrite bool, db *gorm.DB) {
 	addedCnt := 0
 	for _, playlist := range playlists {
 		var found models.Playlist
-		db.Where(&models.Playlist{Name: playlist.Name}).First(&found)
+		db.Where(&models.Playlist{Name: playlist.Name, PlaylistType: playlist.PlaylistType}).First(&found)
 
 		if found.ID == 0 { // id = 0 is a new record
 			playlist.ID = 0 // dont use the id from json
@@ -1543,6 +1559,16 @@ func RestoreActionActors(actionActorsList []BackupActionActor, overwrite bool, d
 		addedCnt++
 	}
 	tlog.Infof("%v Actors with edits restored", addedCnt)
+}
+func RestoreKvs(kvs []models.KV, db *gorm.DB) {
+	tlog := log.WithField("task", "scrape")
+	tlog.Infof("Restoring System Config")
+
+	for _, kv := range kvs {
+		models.SaveWithRetry(db, &kv)
+	}
+
+	tlog.Infof("System Config Restored ")
 }
 
 func CountTags() {

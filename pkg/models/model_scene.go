@@ -37,8 +37,7 @@ func (o *SceneCuepoint) Save() error {
 	db, _ := GetDB()
 	defer db.Close()
 
-	var err error
-	err = retry.Do(
+	var err error = retry.Do(
 		func() error {
 			err := db.Save(&o).Error
 			if err != nil {
@@ -62,7 +61,7 @@ type Scene struct {
 	UpdatedAt time.Time  `json:"updated_at" xbvrbackup:"updated_at"`
 	DeletedAt *time.Time `sql:"index" json:"-" xbvrbackup:"-"`
 
-	SceneID         string    `json:"scene_id" xbvrbackup:"scene_id"`
+	SceneID         string    `gorm:"index" json:"scene_id" xbvrbackup:"scene_id"`
 	Title           string    `json:"title" sql:"type:varchar(1024);" xbvrbackup:"title"`
 	SceneType       string    `json:"scene_type" xbvrbackup:"scene_type"`
 	ScraperId       string    `json:"scraper_id" xbvrbackup:"scraper_id"`
@@ -77,8 +76,8 @@ type Scene struct {
 	Synopsis        string    `json:"synopsis" sql:"type:text;" xbvrbackup:"synopsis"`
 	ReleaseDate     time.Time `json:"release_date" xbvrbackup:"release_date"`
 	ReleaseDateText string    `json:"release_date_text" xbvrbackup:"release_date_text"`
-	CoverURL        string    `json:"cover_url" xbvrbackup:"cover_url"`
-	SceneURL        string    `json:"scene_url" xbvrbackup:"scene_url"`
+	CoverURL        string    `gorm:"size:500" json:"cover_url" xbvrbackup:"cover_url"`
+	SceneURL        string    `gorm:"size:500" json:"scene_url" xbvrbackup:"scene_url"`
 	MemberURL       string    `json:"members_url" xbvrbackup:"members_url"`
 	IsMultipart     bool      `json:"is_multipart" xbvrbackup:"is_multipart"`
 
@@ -137,8 +136,7 @@ func (i *Scene) Save() error {
 	db, _ := GetDB()
 	defer db.Close()
 
-	var err error
-	err = retry.Do(
+	var err error = retry.Do(
 		func() error {
 			err := db.Save(&i).Error
 			if err != nil {
@@ -351,23 +349,23 @@ func (o *Scene) UpdateStatus() {
 			changed = true
 		}
 
-		if scripts > 0 && o.IsScripted == false {
+		if scripts > 0 && !o.IsScripted {
 			o.IsScripted = true
 			changed = true
 		}
 
-		if scripts == 0 && o.IsScripted == true {
+		if scripts == 0 && o.IsScripted {
 			o.IsScripted = false
 			changed = true
 		}
 
-		if videos > 0 && o.IsAvailable == false {
+		if videos > 0 && !o.IsAvailable {
 			o.IsAvailable = true
 			o.Wishlist = false
 			changed = true
 		}
 
-		if videos == 0 && o.IsAvailable == true {
+		if videos == 0 && o.IsAvailable {
 			o.IsAvailable = false
 			changed = true
 		}
@@ -382,7 +380,7 @@ func (o *Scene) UpdateStatus() {
 			changed = true
 		}
 
-		if o.IsScripted == true {
+		if o.IsScripted {
 			o.IsScripted = false
 			changed = true
 		}
@@ -816,6 +814,8 @@ func queryScenes(db *gorm.DB, r RequestSceneList) (*gorm.DB, *gorm.DB) {
 			where = "scenes.favourite = 1"
 		case "Is Passthrough":
 			where = "chroma_key <> ''"
+		case "Is Alpha Passthrough":
+			where = `chroma_key <> '' and chroma_key like '%"hasAlpha":true%'`
 		case "In Wishlist":
 			where = "wishlist = 1"
 		case "Stashdb Linked":
@@ -834,6 +834,8 @@ func queryScenes(db *gorm.DB, r RequestSceneList) (*gorm.DB, *gorm.DB) {
 			where = "scenes.ai_script = 1"
 		case "Has Human Generated Script":
 			where = "scenes.human_script = 1"
+		case "Has Favourite Actor":
+			where = "exists (select * from scene_cast join actors on actors.id=scene_cast.actor_id where actors.favourite=1 and scene_cast.scene_id=scenes.id)"
 		}
 
 		if negate {
@@ -1047,6 +1049,8 @@ func queryScenes(db *gorm.DB, r RequestSceneList) (*gorm.DB, *gorm.DB) {
 		tx = tx.Order("updated_at desc")
 	case "script_published_desc":
 		tx = tx.Order("script_published desc")
+	case "scene_id_desc":
+		tx = tx.Order("scene_id desc")
 	case "random":
 		if dbConn.Driver == "mysql" {
 			tx = tx.Order("rand()")

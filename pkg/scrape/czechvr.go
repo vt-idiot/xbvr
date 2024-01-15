@@ -105,11 +105,13 @@ func CzechVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan
 		}
 
 		// trailer details
-		sc.TrailerType = "heresphere"
 		//  extract internal id with (\d+)
 		var re = regexp.MustCompile(`(?m)https:\/\/www.czechvrnetwork.com\/detail-(\d+)`)
 		r := re.FindStringSubmatch(sc.HomepageURL)
-		sc.TrailerSrc = "https://www.czechvrnetwork.com/heresphere/videoID" + r[1]
+		if len(r) > 0 {
+			sc.TrailerType = "heresphere"
+			sc.TrailerSrc = "https://www.czechvrnetwork.com/heresphere/videoID" + r[1]
+		}
 
 		// Filenames
 		e.ForEach(`div.post div.download a.trailer`, func(id int, e *colly.HTMLElement) {
@@ -155,7 +157,7 @@ func CzechVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan
 
 	siteCollector.OnHTML(`div.postTag`, func(e *colly.HTMLElement) {
 		sceneURL := ""
-		e.ForEach(`div.foto a`, func(id int, e *colly.HTMLElement) {
+		e.ForEach(`div.nazev h2 a`, func(id int, e *colly.HTMLElement) {
 			sceneURL = e.Request.AbsoluteURL(e.Attr("href"))
 			// If scene exist in database, there's no need to scrape
 			if !funk.ContainsString(knownScenes, sceneURL) {
@@ -163,7 +165,7 @@ func CzechVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan
 			}
 		})
 		if config.Config.Funscripts.ScrapeFunscripts {
-			e.ForEach(`div.interactive`, func(id int, e *colly.HTMLElement) {
+			e.ForEach(`div.iconinteractive`, func(id int, e *colly.HTMLElement) {
 				var existingScene models.Scene
 				existingScene.GetIfExistURL(sceneURL)
 				if existingScene.ID != 0 && existingScene.ScriptPublished.IsZero() {
@@ -208,4 +210,5 @@ func init() {
 	addCZVRScraper("czechvrfetish", "Czech VR Fetish", "16", "https://www.czechvrfetish.com/images/favicon/android-chrome-256x256.png")
 	addCZVRScraper("czechvrcasting", "Czech VR Casting", "17", "https://www.czechvrcasting.com/images/favicon/android-chrome-256x256.png")
 	addCZVRScraper("czechvrintimacy", "VR Intimacy", "18", "https://www.vrintimacy.com/images/favicon/android-chrome-256x256.png")
+	addCZVRScraper("czechar", "Czech AR", "19", "https://www.czechar.com/images/favicon/apple-touch-icon.png")
 }

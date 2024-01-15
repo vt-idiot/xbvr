@@ -24,6 +24,8 @@ type ObjectState struct {
 		ShowHspFile       bool   `json:"showHspFile"`
 		ShowSubtitlesFile bool   `json:"showSubtitlesFile"`
 		SceneTrailerlist  bool   `json:"sceneTrailerlist"`
+		ShowScriptHeatmap bool   `json:"showScriptHeatmap"`
+		ShowAllHeatmaps   bool   `json:"showAllHeatmaps"`
 		UpdateCheck       bool   `json:"updateCheck"`
 		IsAvailOpacity    int    `json:"isAvailOpacity"`
 	} `json:"web"`

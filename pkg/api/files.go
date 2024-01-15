@@ -323,6 +323,7 @@ func removeFileByFileId(fileId uint) models.Scene {
 	err := db.Preload("Volume").Where(&models.File{ID: fileId}).First(&file).Error
 	if err == nil {
 
+		log.Infof("Deleting file %s", filepath.Join(file.Path, file.Filename))
 		deleted := false
 		switch file.Volume.Type {
 		case "local":
@@ -330,7 +331,7 @@ func removeFileByFileId(fileId uint) models.Scene {
 			if err == nil {
 				deleted = true
 			} else {
-				log.Errorf("Error deleting file ", err)
+				log.Errorf("error deleting file: %v", err)
 			}
 		case "putio":
 			id, err := strconv.ParseInt(file.Path, 10, 64)
@@ -342,7 +343,7 @@ func removeFileByFileId(fileId uint) models.Scene {
 			if err == nil {
 				deleted = true
 			} else {
-				log.Errorf("Error deleting file ", err)
+				log.Errorf("error deleting file %v", err)
 			}
 		}
 
@@ -354,7 +355,7 @@ func removeFileByFileId(fileId uint) models.Scene {
 			}
 		}
 	} else {
-		log.Errorf("Error deleting file ", err)
+		log.Errorf("error deleting file %v", err)
 	}
 	return scene
 }

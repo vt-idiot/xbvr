@@ -127,6 +127,7 @@ func (i ActorResource) getFilters(req *restful.Request, resp *restful.Response) 
 	outAttributes = append(outAttributes, "Has Piercing")
 	outAttributes = append(outAttributes, "Aka Group")
 	outAttributes = append(outAttributes, "Possible Aka")
+	outAttributes = append(outAttributes, "In An Aka Group")
 	outAttributes = append(outAttributes, "Multiple Stashdb Links")
 	outAttributes = append(outAttributes, "Has Image")
 
@@ -474,39 +475,6 @@ func checkStringArrayChanged(field_name string, newValue *string, actorField *st
 			exists := false
 			for _, actorField := range actorArray {
 				if newField == actorField {
-					exists = true
-				}
-			}
-			if !exists {
-				models.AddActionActor(actorId, "edit_actor", "add", field_name, newField)
-			}
-		}
-
-		*actorField = *newValue
-	}
-}
-
-func checkURLArrayChanged(field_name string, newValue *string, actorField *string, actorId uint) {
-	if *actorField != *newValue {
-		var actorArray []models.ActorLink
-		var newArray []string
-		json.Unmarshal([]byte(*newValue), &newArray)
-		json.Unmarshal([]byte(*actorField), &actorArray)
-		for _, actorField := range actorArray {
-			exists := false
-			for _, newField := range newArray {
-				if newField == actorField.Url {
-					exists = true
-				}
-			}
-			if !exists {
-				models.AddActionActor(actorId, "edit_actor", "delete", field_name, actorField.Url)
-			}
-		}
-		for _, newField := range newArray {
-			exists := false
-			for _, actorField := range actorArray {
-				if newField == actorField.Url {
 					exists = true
 				}
 			}

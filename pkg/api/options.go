@@ -5,7 +5,6 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -56,6 +55,8 @@ type RequestSaveOptionsWeb struct {
 	ShowHspFile       bool   `json:"showHspFile"`
 	ShowSubtitlesFile bool   `json:"showSubtitlesFile"`
 	SceneTrailerlist  bool   `json:"sceneTrailerlist"`
+	ShowScriptHeatmap bool   `json:"showScriptHeatmap"`
+	ShowAllHeatmaps   bool   `json:"showAllHeatmaps"`
 	UpdateCheck       bool   `json:"updateCheck"`
 	IsAvailOpacity    int    `json:"isAvailOpacity"`
 }
@@ -70,7 +71,7 @@ type RequestSaveOptionsAdvanced struct {
 }
 
 type RequestSaveOptionsFunscripts struct {
-	ScrapeFunscripts bool `json:"scrapeFunscripts":`
+	ScrapeFunscripts bool `json:"scrapeFunscripts"`
 }
 type RequestSaveOptionsDLNA struct {
 	Enabled      bool     `json:"enabled"`
@@ -380,6 +381,8 @@ func (i ConfigResource) saveOptionsWeb(req *restful.Request, resp *restful.Respo
 	config.Config.Web.ShowHspFile = r.ShowHspFile
 	config.Config.Web.ShowSubtitlesFile = r.ShowSubtitlesFile
 	config.Config.Web.SceneTrailerlist = r.SceneTrailerlist
+	config.Config.Web.ShowScriptHeatmap = r.ShowScriptHeatmap
+	config.Config.Web.ShowAllHeatmaps = r.ShowAllHeatmaps
 	config.Config.Web.UpdateCheck = r.UpdateCheck
 	config.Config.Web.IsAvailOpacity = r.IsAvailOpacity
 	config.SaveConfig()
@@ -918,7 +921,7 @@ func (i ConfigResource) createCustomSite(req *restful.Request, resp *restful.Res
 		scraper := config.ScraperConfig{URL: r.Url, Name: r.Name, Company: r.Company, AvatarUrl: r.Avatar}
 		switch match[3] {
 		case "povr":
-			scrapers["povr"] = append(scrapers["povrr"], scraper)
+			scrapers["povr"] = append(scrapers["povr"], scraper)
 		case "sexlikereal":
 			scrapers["slr"] = append(scrapers["slr"], scraper)
 		case "vrphub":
@@ -933,7 +936,7 @@ func (i ConfigResource) createCustomSite(req *restful.Request, resp *restful.Res
 	scraperConfig.CustomScrapers.VrpornScrapers = scrapers["vrporn"]
 	fName := filepath.Join(common.AppDir, "scrapers.json")
 	list, _ := json.MarshalIndent(scraperConfig, "", "  ")
-	ioutil.WriteFile(fName, list, 0644)
+	os.WriteFile(fName, list, 0644)
 
 	resp.WriteHeader(http.StatusOK)
 }

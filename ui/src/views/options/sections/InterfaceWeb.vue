@@ -75,6 +75,16 @@
                 show subtitles File button
               </b-switch>
             </b-field>
+            <b-field>
+              <b-switch v-model="ScriptHeatmap" type="is-dark">
+                show Script Heatmap
+              </b-switch>
+            </b-field>
+            <b-field v-if="ScriptHeatmap">
+              <b-switch v-model="AllHeatmaps" type="is-dark">
+                show All Heatmaps
+              </b-switch>
+            </b-field>
             <b-field label="Opacity of unavailable scenes">
               <div class="columns">
                 <div class="column is-two-thirds">
@@ -173,6 +183,22 @@ export default {
       },
       set (value) {
         this.$store.state.optionsWeb.web.sceneEdit = value
+      }
+    },
+    ScriptHeatmap: {
+      get () {
+        return this.$store.state.optionsWeb.web.showScriptHeatmap
+      },
+      set (value) {
+        this.$store.state.optionsWeb.web.showScriptHeatmap = value
+      }
+    },
+    AllHeatmaps: {
+      get () {
+        return this.$store.state.optionsWeb.web.showAllHeatmaps
+      },
+      set (value) {
+        this.$store.state.optionsWeb.web.showAllHeatmaps = value
       }
     },
     updateCheck: {

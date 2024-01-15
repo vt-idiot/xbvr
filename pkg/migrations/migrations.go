@@ -756,6 +756,17 @@ func Migrate() {
 				return tx.AutoMigrate(File{}).Error
 			},
 		},
+		{
+			ID: "0073-scene-_id-index-plus-columns_size_changes",
+			Migrate: func(tx *gorm.DB) error {
+				type Scene struct {
+					SceneID  string `gorm:"index" json:"scene_id" xbvrbackup:"scene_id"`
+					CoverURL string `gorm:"size:500" json:"cover_url" xbvrbackup:"cover_url"`
+					SceneURL string `gorm:"size:500" json:"scene_url" xbvrbackup:"scene_url"`
+				}
+				return tx.AutoMigrate(&Scene{}).Error
+			},
+		},
 
 		// ===============================================================================================
 		// Put DB Schema migrations above this line and migrations that rely on the updated schema below
@@ -1483,7 +1494,7 @@ func Migrate() {
 				}
 				// backup bundle
 				common.Log.Infof("Creating pre-migration backup, please waiit, backups can take some time on a system with a large number of scenes ")
-				tasks.BackupBundle(true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, "0", "xbvr-premigration-bundle.json", "2")
+				tasks.BackupBundle(true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, "0", "xbvr-premigration-bundle.json", "2")
 				common.Log.Infof("Go to download/xbvr-premigration-bundle.json, or http://xxx.xxx.xxx.xxx:9999/download/xbvr-premigration-bundle.json if you need access to the backup")
 				var sites []models.Site
 				officalSiteChanges := []SiteChange{
@@ -1763,6 +1774,81 @@ func Migrate() {
 					db.Delete(&actor)
 				}
 				return nil
+			},
+		},
+		{
+			ID: "0070-update_possible_aka_saved_search",
+			Migrate: func(tx *gorm.DB) error {
+				// update existing Possible Aka Actor Playlist
+				var playlist models.Playlist
+				tx.Model(&models.Playlist{}).Where("playlist_type = ? and name = ?", "actor", "Possible Aka").First(&playlist)
+				if playlist.ID != 0 {
+					list := models.RequestActorList{
+						DlState:        optional.NewString("Any"),
+						Lists:          []optional.String{},
+						Cast:           []optional.String{},
+						Sites:          []optional.String{},
+						Tags:           []optional.String{},
+						Attributes:     []optional.String{},
+						JumpTo:         optional.NewString(""),
+						MinAge:         optional.NewInt(0),
+						MaxAge:         optional.NewInt(100),
+						MinHeight:      optional.NewInt(120),
+						MaxHeight:      optional.NewInt(220),
+						MinCount:       optional.NewInt(0),
+						MaxCount:       optional.NewInt(150),
+						MinAvail:       optional.NewInt(0),
+						MaxAvail:       optional.NewInt(150),
+						MinRating:      optional.NewFloat64(0),
+						MaxRating:      optional.NewFloat64(5),
+						MinSceneRating: optional.NewFloat64(0),
+						MaxSceneRating: optional.NewFloat64(5),
+						Sort:           optional.NewString("birthday_desc"),
+					}
+					list.Attributes = append(list.Attributes, optional.NewString("&Possible Aka"), optional.NewString("!In An Aka Group"), optional.NewString("!Aka Group"))
+					b, _ := json.Marshal(list)
+
+					playlist.SearchParams = string(b)
+					playlist.Save()
+				}
+				return nil
+			},
+		},
+		{
+			ID: "0071-Update-WetVR",
+			Migrate: func(tx *gorm.DB) error {
+				var scenes []models.Scene
+
+				err := tx.Where("site = ?", "WetVR").Find(&scenes).Error
+				if err != nil {
+					return err
+				}
+				for _, scene := range scenes {
+					scene.TrailerType = "scrape_html"
+					scene.TrailerSource = `{"scene_url":"` + scene.SceneURL + `","html_element":"deo-video source","extract_regex":"","content_base_url":"","record_path":"","content_path":"src","encoding_path":"","quality_path":"quality"}`
+					scene.MemberURL = strings.Replace(scene.SceneURL, "https://wetvr.com/", "https://wetvr.com/members/", 1)
+
+					var filenames []string
+					err = json.Unmarshal([]byte(scene.FilenamesArr), &filenames)
+					baseFilename := strings.TrimPrefix(scene.SceneURL, "https://wetvr.com/video/")
+					if !strings.Contains(scene.FilenamesArr, "2700.mp4") {
+						filenames = append(filenames, "wetvr-"+baseFilename+"-2700.mp4")
+						filenames = append(filenames, "wetvr-"+baseFilename+"-2048.mp4")
+						filenames = append(filenames, "wetvr-"+baseFilename+"-1600.mp4")
+						filenames = append(filenames, "wetvr-"+baseFilename+"-960.mp4")
+						tmp, _ := json.Marshal(filenames)
+						scene.FilenamesArr = string(tmp)
+					}
+					tx.Save(&scene)
+				}
+				return nil
+			},
+		},
+		{
+			ID: "0072-Update-Baberotica-Studio",
+			Migrate: func(tx *gorm.DB) error {
+				sql := `update scenes set studio = 'Baberotica' where site = 'BaberoticaVR' and studio <> 'Baberotica';`
+				return tx.Exec(sql).Error
 			},
 		},
 	})
