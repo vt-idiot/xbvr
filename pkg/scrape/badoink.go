@@ -23,7 +23,7 @@ import (
 	"github.com/xbapps/xbvr/pkg/models"
 )
 
-func BadoinkSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, scraperID string, siteID string, URL string, singeScrapeAdditionalInfo string) error {
+func BadoinkSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, scraperID string, siteID string, URL string, singeScrapeAdditionalInfo string, limitScraping bool) error {
 	defer wg.Done()
 	logScrapeStart(scraperID, siteID)
 
@@ -31,8 +31,9 @@ func BadoinkSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 	siteCollector := createCollector("badoinkvr.com", "babevr.com", "vrcosplayx.com", "18vr.com", "kinkvr.com")
 	trailerCollector := cloneCollector(sceneCollector)
 
-	db, _ := models.GetDB()
-	defer db.Close()
+	commonDb, _ := models.GetCommonDB()
+
+	var Has6K7K bool = false
 
 	sceneCollector.OnHTML(`html`, func(e *colly.HTMLElement) {
 		sc := models.ScrapedScene{}
@@ -80,6 +81,9 @@ func BadoinkSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 		// Tags
 		e.ForEach(`a.video-tag`, func(id int, e *colly.HTMLElement) {
 			sc.Tags = append(sc.Tags, strings.TrimSpace(e.Text))
+			if strings.Contains(strings.TrimSpace(e.Text), "7K") {
+				Has6K7K = true
+			}
 		})
 		if scraperID == "vrcosplayx" {
 			sc.Tags = append(sc.Tags, "Cosplay", "Parody")
@@ -144,7 +148,18 @@ func BadoinkSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 				fragmentName := strings.Split(fpName, "/")
 				baseName := fragmentName[len(fragmentName)-1]
 
-				filenames := []string{"samsung_180_180x180_3dh", "oculus_180_180x180_3dh", "mobile_180_180x180_3dh", "7k_180_180x180_3dh", "5k_180_180x180_3dh", "4k_HEVC_180_180x180_3dh", "samsung_180_180x180_3dh_LR", "oculus_180_180x180_3dh_LR", "mobile_180_180x180_3dh_LR", "7k_180_180x180_3dh_LR", "5k_180_180x180_3dh_LR", "4k_HEVC_180_180x180_3dh_LR", "ps4_180_sbs", "ps4_pro_180_sbs"}
+				e.ForEach(`a.video-tag`, func(id int, e *colly.HTMLElement) {
+					sc.Tags = append(sc.Tags, strings.TrimSpace(e.Text))
+					if strings.Contains(strings.TrimSpace(e.Text), "7K") {
+						Has6K7K = true
+					}
+				})
+
+				filenames := []string{"samsung_180_180x180_3dh", "oculus_180_180x180_3dh", "mobile_180_180x180_3dh", "5k_180_180x180_3dh", "4k_HEVC_180_180x180_3dh", "samsung_180_180x180_3dh_LR", "oculus_180_180x180_3dh_LR", "mobile_180_180x180_3dh_LR", "5k_180_180x180_3dh_LR", "4k_HEVC_180_180x180_3dh_LR", "ps4_180_sbs", "ps4_pro_180_sbs"}
+
+				if Has6K7K {
+					filenames = []string{"7k_180_180x180_3dh", "6k_180_180x180_3dh", "5k_180_180x180_3dh", "4k_HEVC_180_180x180_3dh", "7k_180_180x180_3dh_LR", "6k_180_180x180_3dh_LR", "5k_180_180x180_3dh_LR", "4k_HEVC_180_180x180_3dh_LR", "samsung_180_180x180_3dh", "oculus_180_180x180_3dh", "mobile_180_180x180_3dh", "samsung_180_180x180_3dh_LR", "oculus_180_180x180_3dh_LR", "mobile_180_180x180_3dh_LR", "ps4_180_sbs", "ps4_pro_180_sbs"}
+				}
 
 				for i := range filenames {
 					filenames[i] = baseName + "_" + filenames[i] + ".mp4"
@@ -190,8 +205,10 @@ func BadoinkSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 	})
 
 	siteCollector.OnHTML(`div.pagination a`, func(e *colly.HTMLElement) {
-		pageURL := e.Request.AbsoluteURL(e.Attr("href"))
-		siteCollector.Visit(pageURL)
+		if !limitScraping {
+			pageURL := e.Request.AbsoluteURL(e.Attr("href"))
+			siteCollector.Visit(pageURL)
+		}
 	})
 
 	siteCollector.OnHTML(`main[data-page=VideoList] a.video-card-image-container`, func(e *colly.HTMLElement) {
@@ -212,7 +229,7 @@ func BadoinkSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 
 			e.ForEach(`a[href^="/category/funscript"]`, func(id int, e *colly.HTMLElement) {
 				var existingScene models.Scene
-				existingScene.GetIfExistURL(sceneURL)
+				commonDb.Where(&models.Scene{SceneURL: sceneURL}).First(&existingScene)
 				if existingScene.ID != 0 && existingScene.ScriptPublished.IsZero() {
 					var sc models.ScrapedScene
 					sc.InternalSceneId = existingScene.ID
@@ -241,24 +258,24 @@ func BadoinkSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 	return nil
 }
 
-func BadoinkVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
-	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "badoinkvr", "BadoinkVR", "https://badoinkvr.com/vrpornvideos?order=newest", singeScrapeAdditionalInfo)
+func BadoinkVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string, limitScraping bool) error {
+	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "badoinkvr", "BadoinkVR", "https://badoinkvr.com/vrpornvideos?order=newest", singeScrapeAdditionalInfo, limitScraping)
 }
 
-func B18VR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
-	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "18vr", "18VR", "https://18vr.com/vrpornvideos", singeScrapeAdditionalInfo)
+func B18VR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string, limitScraping bool) error {
+	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "18vr", "18VR", "https://18vr.com/vrpornvideos?order=newest", singeScrapeAdditionalInfo, limitScraping)
 }
 
-func VRCosplayX(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
-	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "vrcosplayx", "VRCosplayX", "https://vrcosplayx.com/cosplaypornvideos", singeScrapeAdditionalInfo)
+func VRCosplayX(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string, limitScraping bool) error {
+	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "vrcosplayx", "VRCosplayX", "https://vrcosplayx.com/cosplaypornvideos?order=newest", singeScrapeAdditionalInfo, limitScraping)
 }
 
-func BabeVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
-	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "babevr", "BabeVR", "https://babevr.com/vrpornvideos", singeScrapeAdditionalInfo)
+func BabeVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string, limitScraping bool) error {
+	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "babevr", "BabeVR", "https://babevr.com/vrpornvideos?order=newest", singeScrapeAdditionalInfo, limitScraping)
 }
 
-func KinkVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {
-	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "kinkvr", "KinkVR", "https://kinkvr.com/bdsm-vr-videos", singeScrapeAdditionalInfo)
+func KinkVR(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string, limitScraping bool) error {
+	return BadoinkSite(wg, updateSite, knownScenes, out, singleSceneURL, "kinkvr", "KinkVR", "https://kinkvr.com/bdsm-vr-videos?order=newest", singeScrapeAdditionalInfo, limitScraping)
 }
 
 func init() {
