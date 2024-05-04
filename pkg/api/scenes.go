@@ -387,6 +387,7 @@ func (i SceneResource) getFilters(req *restful.Request, resp *restful.Response) 
 	outAttributes = append(outAttributes, "Has AI Generated Script")
 	outAttributes = append(outAttributes, "Has Human Generated Script")
 	outAttributes = append(outAttributes, "Has Favourite Actor")
+	outAttributes = append(outAttributes, "Has Actor in Watchlist")
 	outAttributes = append(outAttributes, "Available from Alternate Sites")
 	outAttributes = append(outAttributes, "Available from POVR")
 	outAttributes = append(outAttributes, "Available from VRPorn")
@@ -612,6 +613,31 @@ func (i SceneResource) searchSceneIndex(req *restful.Request, resp *restful.Resp
 		}
 	}
 
+	// if searching for a path/filename
+	lastslash := strings.LastIndex(q, "\\")
+	path := ""
+	filename := q
+	if lastslash > -1 {
+		path = strings.ReplaceAll(q[:lastslash], "\\", "_") // change backslash to _, backslash doesn't seem to work with SQL Like, replace with _ (single character)
+		filename = q[lastslash+1:]
+	}
+
+	var fileScenes []models.File
+	if path != "" {
+		db.Where("path like ? and filename like ? and scene_id > 0", "%"+path+"%", "%"+filename+"%").Find(&fileScenes)
+	} else {
+		db.Where("filename like ? and scene_id > 0", "%"+filename+"%").Find(&fileScenes)
+	}
+
+	for _, file := range fileScenes {
+		var scene models.Scene
+		scene.GetIfExistByPK(file.SceneID)
+		if scene.ID != 0 {
+			scenes = append(scenes, scene)
+		}
+	}
+
+	// search bleve search indexes
 	idx, err := tasks.NewIndex("scenes")
 	if err != nil {
 		log.Error(err)

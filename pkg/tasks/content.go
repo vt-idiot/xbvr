@@ -117,12 +117,31 @@ func runScrapers(knownScenes []string, toScrape string, updateSite bool, collect
 
 	var wg sync.WaitGroup
 
+	sitecnt := 1
+	concurrent_scrapers := common.ConcurrentScrapers
+	if concurrent_scrapers == 0 {
+		concurrent_scrapers = 99999
+	}
 	if len(sites) > 0 {
 		for _, site := range sites {
 			for _, scraper := range scrapers {
 				if site.ID == scraper.ID {
 					wg.Add(1)
-					go scraper.Scrape(&wg, updateSite, knownScenes, collectedScenes, singleSceneURL, singeScrapeAdditionalInfo, site.LimitScraping)
+					go func(scraper models.Scraper) {
+						scraper.Scrape(&wg, updateSite, knownScenes, collectedScenes, singleSceneURL, singeScrapeAdditionalInfo, site.LimitScraping)
+						var site models.Site
+						err := site.GetIfExist(scraper.ID)
+						if err != nil {
+							log.Error(err)
+							return
+						}
+						site.Save()
+					}(scraper)
+
+					if sitecnt%concurrent_scrapers == 0 { // processing batches of 35 sites
+						wg.Wait()
+					}
+					sitecnt++
 				}
 			}
 		}
@@ -365,6 +384,9 @@ func ScrapeJAVR(queryString string, scraper string) {
 		t0 := time.Now()
 		tlog := log.WithField("task", "scrape")
 		tlog.Infof("Scraping started at %s", t0.Format("Mon Jan _2 15:04:05 2006"))
+
+		config.Config.ScraperSettings.Javr.JavrScraper = scraper
+		config.SaveConfig()
 
 		// Start scraping
 		var collectedScenes []models.ScrapedScene
