@@ -1148,6 +1148,8 @@ func queryScenes(db *gorm.DB, r RequestSceneList) (*gorm.DB, *gorm.DB) {
 		}
 	case "scene_id_desc":
 		tx = tx.Order("scene_id desc")
+	case "site_asc":
+		tx = tx.Order("scenes.site")
 	case "random":
 		if dbConn.Driver == "mysql" {
 			tx = tx.Order("rand()")
