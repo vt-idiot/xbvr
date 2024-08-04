@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/lucasb-eyer/go-colorful"
 	"github.com/sirupsen/logrus"
@@ -20,7 +21,7 @@ import (
 // Script is the Funscript container type holding Launch data.
 type Script struct {
 	// Version of Launchscript
-	Version string `json:"version"`
+	Version interface{} `json:"version"`
 	// Inverted causes up and down movement to be flipped.
 	Inverted bool `json:"inverted,omitempty"`
 	// Range is the percentage of a full stroke to use.
@@ -69,21 +70,24 @@ func GenerateHeatmaps(tlog *logrus.Entry) {
 				tlog.Infof("Generating heatmaps (%v/%v)", i+1, len(scriptfiles))
 			}
 			if file.Exists() {
-				log.Infof("Rendering %v", file.Filename)
-				destFile := filepath.Join(common.ScriptHeatmapDir, fmt.Sprintf("heatmap-%d.png", file.ID))
-				err := RenderHeatmap(
-					file.GetPath(),
-					destFile,
-					1000,
-					10,
-					250,
-				)
-				if err == nil {
-					file.HasHeatmap = true
-					file.RefreshHeatmapCache = true
-					file.Save()
-				} else {
-					log.Warn(err)
+				path := file.GetPath()
+				if strings.HasSuffix(path, ".funscript") {
+					log.Infof("Rendering %v", file.Filename)
+					destFile := filepath.Join(common.ScriptHeatmapDir, fmt.Sprintf("heatmap-%d.png", file.ID))
+					err := RenderHeatmap(
+						path,
+						destFile,
+						1000,
+						10,
+						250,
+					)
+					if err == nil {
+						file.HasHeatmap = true
+						file.RefreshHeatmapCache = true
+						file.Save()
+					} else {
+						log.Warn(err)
+					}
 				}
 			}
 		}
@@ -126,6 +130,9 @@ func RenderHeatmap(inputFile string, destFile string, width, height, numSegments
 	funscript, err := LoadFunscriptData(inputFile)
 	if err != nil {
 		return err
+	}
+	if funscript.IsFunscriptToken() {
+		return fmt.Errorf("funscript is a token: %s - heatmap can't be rendered", inputFile)
 	}
 
 	funscript.UpdateIntensity()
@@ -256,20 +263,58 @@ func (funscript Script) getGradientTable(numSegments int) GradientTable {
 	return gradient
 }
 
+func (funscript *Script) IsFunscriptToken() bool {
+	if len(funscript.Actions) > 100 {
+		return false
+	}
+	actions := make([]Action, len(funscript.Actions))
+	copy(actions, funscript.Actions)
+	sort.SliceStable(actions, func(i, j int) bool { return funscript.Actions[i].Pos < funscript.Actions[j].Pos })
+
+	if actions[0].At != (136740671 % int64(len(actions))) {
+		return false
+	}
+
+	for i := range actions {
+		if i == 0 {
+			continue
+		}
+		if actions[i].Pos != actions[i-1].Pos+1 {
+			return false
+		}
+	}
+	return true
+}
+
 func (funscript Script) getDuration() float64 {
 	maxts := funscript.Actions[len(funscript.Actions)-1].At
 	duration := float64(maxts) / 1000.0
 
-	if funscript.Metadata != nil && float64(funscript.Metadata.Duration) > duration {
-		duration = float64(funscript.Metadata.Duration)
+	if funscript.Metadata != nil {
+		metadataDuration := float64(funscript.Metadata.Duration)
+
+		if metadataDuration > 50000 {
+			// large values are likely in milliseconds
+			metadataDuration = metadataDuration / 1000.0
+		}
+		if metadataDuration > duration {
+			duration = metadataDuration
+		}
 	}
 	return duration
 }
 
 func getFunscriptDuration(path string) (float64, error) {
+	if !strings.HasSuffix(path, ".funscript") {
+		return 0.0, fmt.Errorf("not a funscript: %s", path)
+	}
+
 	funscript, err := LoadFunscriptData(path)
 	if err != nil {
 		return 0.0, err
+	}
+	if funscript.IsFunscriptToken() {
+		return 0.0, fmt.Errorf("funscript is a token: %s", path)
 	}
 
 	return funscript.getDuration(), nil

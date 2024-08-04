@@ -2,7 +2,7 @@
   <div class="card is-shadowless">
     <div class="card-image">
       <div class="bbox"
-           v-bind:style="{backgroundImage: `url(${getImageURL(item.cover_url)})`, backgroundSize: 'contain', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', opacity:item.is_available ? 1.0 : this.isAvailOpactiy}"
+           v-bind:style='{backgroundImage: `url("${getImageURL(item.cover_url)}")`, backgroundSize: "contain", backgroundPosition: "center", backgroundRepeat: "no-repeat", opacity:item.is_available ? 1.0 : this.isAvailOpactiy}'
            @click="showDetails(item)"
            @mouseover="preview = true"
            @mouseleave="preview = false">
@@ -68,14 +68,16 @@
           {{format(parseISO(item.release_date), "yyyy-MM-dd")}}
         </span>        
       </span>
-      <div class="image-row" v-if="getAlternateSceneSources != 0">
+      <div class="image-row" v-if="getAlternateSceneSourcesWithTitles != 0">
         <div v-for="(altsrc, idx) in this.alternateSources" :key="idx" class="altsrc-image-wrapper">
-          <a :href="altsrc.url" target="_blank">
-            <vue-load-image>
-              <img slot="image" :src="getImageURL(altsrc.site_icon)" alt="Image" class="thumbnail" width="20" />
-              <b-icon slot="error" pack="mdi" icon="link" size="is-small" />
-            </vue-load-image>
-          </a>
+          <b-tooltip type="is-light" :label="altsrc.title" :delay="100">
+            <a :href="altsrc.url" target="_blank">
+              <vue-load-image>
+                <img slot="image" :src="getImageURL(altsrc.site_icon)" alt="Image" class="thumbnail" width="20" />
+                <b-icon slot="error" pack="mdi" icon="link" size="is-small" />
+              </vue-load-image>
+            </a>
+          </b-tooltip>
         </div>
       </div>    
     </div>
@@ -153,23 +155,35 @@ export default {
       }
       return this.$store.state.optionsWeb.web.isAvailOpacity / 100
     },
-    async getAlternateSceneSources() {
-      try {    
+    async getAlternateSceneSourcesWithTitles() {
+      try {
         const response = await ky.get('/api/scene/alternate_source/' + this.item.id).json();
         this.alternateSources = [];
-        if (response==null){
-          return 0
+        if (response == null) {
+          return 0;
         }
-        response.forEach(altsrc => {          
-          if (altsrc.external_source.startsWith("alternate scene ") || altsrc.external_source == "stashdb scene") {
-            this.alternateSources.push(altsrc)
-          }
-        });        
+
+        this.alternateSources = response
+          .filter(altsrc => altsrc.external_source.startsWith("alternate scene ") || altsrc.external_source == "stashdb scene")
+          .map(altsrc => {
+            const extdata = JSON.parse(altsrc.external_data);
+            let title;
+            if (altsrc.external_source.startsWith("alternate scene ")) {
+              title = extdata.scene?.title || 'No Title';
+            } else if (altsrc.external_source == "stashdb scene") {
+              title = extdata.title || 'No Title';
+            }
+            return {
+              ...altsrc,
+              title: title
+            };
+          });
+
         return this.alternateSources.length;
-      } catch (error) {        
+      } catch (error) {
         return 0; // Return 0 or handle error as needed
       }
-    },
+    }
   },
   methods: {
     getImageURL (u) {

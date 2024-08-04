@@ -62,7 +62,7 @@ func BadoinkSite(wg *sync.WaitGroup, updateSite bool, knownScenes []string, out 
 			}
 		})
 		// Cover URLs for free videos
-		e.ForEach(`div#videoPreviewContainer dl8-video`, func(id int, e *colly.HTMLElement) {
+		e.ForEach(`div#videoPreviewContainer dl8-video,video`, func(id int, e *colly.HTMLElement) {
 			if id == 0 {
 				sc.Covers = append(sc.Covers, strings.Split(e.Attr("poster"), "?")[0])
 			}
@@ -292,6 +292,6 @@ func init() {
 	registerScraper("badoinkvr", "BadoinkVR", "https://pbs.twimg.com/profile_images/618071358933610497/QaMV81nF_200x200.png", "badoinkvr.com", BadoinkVR)
 	registerScraper("18vr", "18VR", "https://pbs.twimg.com/profile_images/989481761783545856/w-iKqgqV_200x200.jpg", "18vr.com", B18VR)
 	registerScraper("vrcosplayx", "VRCosplayX", "https://pbs.twimg.com/profile_images/900675974039298049/ofMytpkQ_200x200.jpg", "vrcosplayx.com", VRCosplayX)
-	registerScraper("babevr", "BabeVR", "https://babevr.com/babevr_icons/apple-touch-icon.png", "babevr.com", BabeVR)
-	registerScraper("kinkvr", "KinkVR", "https://kinkvr.com/kinkvr_icons/apple-touch-icon.png", "kinkvr.com", KinkVR)
+	registerScraper("babevr", "BabeVR", "https://babevr.com/icons/babevr/apple-touch-icon.png", "babevr.com", BabeVR)
+	registerScraper("kinkvr", "KinkVR", "https://kinkvr.com/icons/kinkvr/apple-touch-icon.png", "kinkvr.com", KinkVR)
 }

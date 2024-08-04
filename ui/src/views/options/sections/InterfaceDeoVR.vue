@@ -55,7 +55,7 @@
               </div>
               <hr/>
               <div class="block">
-                <b-tooltip label="Specfy feilds if you wish control the sequence of the scenes video files" multilined :delay="750" >
+                <b-tooltip label="Specify fields if you wish to control the sequence of the scene's video files" multilined :delay="750" >
                   <b-field label="Video File Sorting">
                     <b-input v-model="videoSequence" disabled></b-input>
                   </b-field>
@@ -85,7 +85,7 @@
                     </b-dropdown>
                   </b-field>
                 </b-tooltip>
-                <b-tooltip label="Specfy feilds if you wish control the sequence of the scenes video files" multilined :delay="750" >
+                <b-tooltip label="Specify fields if you wish to control the sequence of the scene's script files" multilined :delay="750" >
                   <b-field label="Script File Sorting">
                     <b-input v-model="scriptSequence" disabled></b-input>
                   </b-field>
@@ -104,6 +104,31 @@
                     <b-dropdown v-model="selectedScriptSequence" aria-role="list">
                         <template #trigger>
                             <b-button :label="selectedScriptSequence" icon-right="menu-down" />
+                        </template>
+                        <b-dropdown-item aria-role="listitem" value='Ascending'>Ascending</b-dropdown-item>
+                        <b-dropdown-item aria-role="listitem" value='Descending'>Descending</b-dropdown-item>
+                    </b-dropdown>
+                  </b-field>
+                </b-tooltip>
+                <b-tooltip label="Specify fields if you wish to control the sequence of the scene's subtitle files" multilined :delay="750" >
+                  <b-field label="Subtitle File Sorting">
+                    <b-input v-model="subtitleSequence" disabled></b-input>
+                  </b-field>
+                  <b-field>
+                    <b-button label="Add Field" @click="addVideoField('subtitle')" />
+                    <b-button label="Clear Fields" @click="subtitleSequence=''" />
+                    <b-dropdown v-model="selectedSubtitleField" aria-role="list">
+                        <template #trigger>
+                            <b-button :label="selectedSubtitleField" icon-right="menu-down" />
+                        </template>
+                        <b-dropdown-item aria-role="listitem" value='Filename'>Filename</b-dropdown-item>
+                        <b-dropdown-item aria-role="listitem" value='Added'>Added</b-dropdown-item>
+                        <b-dropdown-item aria-role="listitem" value='Updated'>Updated</b-dropdown-item>
+                        <b-dropdown-item aria-role="listitem" value='Selected'>Selected</b-dropdown-item>
+                    </b-dropdown>
+                    <b-dropdown v-model="selectedSubtitleSequence" aria-role="list">
+                        <template #trigger>
+                            <b-button :label="selectedSubtitleSequence" icon-right="menu-down" />
                         </template>
                         <b-dropdown-item aria-role="listitem" value='Ascending'>Ascending</b-dropdown-item>
                         <b-dropdown-item aria-role="listitem" value='Descending'>Descending</b-dropdown-item>
@@ -152,7 +177,7 @@
       <h3>Heresphere interface</h3>
       <hr/>
           <b-tooltip
-            label="WANRING: file deletes from Heresphere are permanent. ALL files associated with a scene will be deleted"
+            label="WANRING: File deletion from Heresphere is PERMANENT! ALL files associated with a scene will be deleted."
             size="is-large" type="is-danger" multilined :delay="250" >
             <b-field label="Allow File Deletion">
               <b-switch v-model="allowFileDeletions">
@@ -248,7 +273,9 @@ export default {
       selectedVideoField: 'Filename',
       selectedVideoSequence: 'Ascending',
       selectedScriptField: 'Filename',
-      selectedScriptSequence: 'Ascending'
+      selectedScriptSequence: 'Ascending',
+      selectedSubtitleField: 'Filename',
+      selectedSubtitleSequence: 'Ascending'
     }
   },
   methods: {
@@ -269,8 +296,10 @@ export default {
     addVideoField(type) {      
       let dbfield=''
       let field=this.selectedVideoField            
-      if (type!='video'){        
+      if (type=='script') {
         field=this.selectedScriptField
+      } else if (type=='subtitle') {
+        field=this.selectedSubtitleField
       }
 
       switch (field) {
@@ -301,21 +330,26 @@ export default {
         default:
           dbfield = field.toLowerCase()
       }
-          
-      if (type=='video'){        
+
+      if (type=='video') {
         if (this.selectedVideoSequence=='Ascending') {
           this.videoSequence=[this.videoSequence, dbfield ].filter(Boolean).join(',')
-        }else{
+        } else {
           this.videoSequence=[this.videoSequence, dbfield+' desc' ].filter(Boolean).join(',')
         }
-      }else{
+      } else if (type=='script') {
         if (this.selectedScriptSequence=='Ascending') {
           this.scriptSequence=[this.scriptSequence, dbfield ].filter(Boolean).join(',')
-        }else{
+        } else {
           this.scriptSequence=[this.scriptSequence, dbfield+' desc' ].filter(Boolean).join(',')
         }
+      } else {
+        if (this.selectedSubtitleSequence=='Ascending') {
+          this.subtitleSequence=[this.subtitleSequence, dbfield ].filter(Boolean).join(',')
+        } else {
+          this.subtitleSequence=[this.subtitleSequence, dbfield+' desc' ].filter(Boolean).join(',')
+        }
       }
-
     }
   },
   computed: {
@@ -458,6 +492,14 @@ export default {
       },
       set (value) {
         this.$store.state.optionsDeoVR.players.script_sort_seq = value
+      },
+    },
+    subtitleSequence: {
+      get () {
+        return this.$store.state.optionsDeoVR.players.subtitle_sort_seq
+      },
+      set (value) {
+        this.$store.state.optionsDeoVR.players.subtitle_sort_seq = value
       },
     },
     multiTrackCastCuepoints: {
