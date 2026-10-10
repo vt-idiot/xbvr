@@ -93,3 +93,17 @@ func TestSplitSceneID(t *testing.T) {
 		t.Errorf("got %s", got)
 	}
 }
+
+func TestSplitBaseID(t *testing.T) {
+	for in, want := range map[string]string{
+		"VRKM-139_split1":   "VRKM-139",
+		"vrkm01662_split12": "vrkm01662",
+		"VRKM-139":          "",
+		"VRKM-139_split":    "",
+		"A_split1_split2":   "A_split1",
+	} {
+		if got := splitBaseID(in); got != want {
+			t.Errorf("splitBaseID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
