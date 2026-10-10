@@ -2,6 +2,7 @@ package scrape
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -211,5 +212,29 @@ func TestR18devPacerBackOff(t *testing.T) {
 	p.reset(r18devDelay)
 	if p.delay != r18devDelay {
 		t.Errorf("delay after reset = %s, want %s", p.delay, r18devDelay)
+	}
+}
+
+func TestR18devLiveGallery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ok.jpg":
+			w.WriteHeader(200)
+		case "/delisted.jpg":
+			http.Redirect(w, r, "https://pics.dmm.com/mono/movie/n/now_printing/now_printing.jpg", http.StatusFound)
+		case "/moved.jpg":
+			http.Redirect(w, r, "/ok.jpg", http.StatusFound)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	c := newR18devClient()
+	in := []string{srv.URL + "/ok.jpg", srv.URL + "/delisted.jpg", srv.URL + "/moved.jpg", srv.URL + "/gone.jpg"}
+	got := strings.Join(c.liveGallery(in), " ")
+	want := srv.URL + "/ok.jpg " + srv.URL + "/moved.jpg"
+	if got != want {
+		t.Errorf("got %s, want %s", got, want)
 	}
 }
