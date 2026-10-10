@@ -85,6 +85,7 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 		`{"content_id":"1sodsvr00006","release_date":"2026-10-12","categories":[{"id":6793},{"id":6925}]}`:                     "compilation (prefix SODSVR)",
 		`{"content_id":"ajvrbx00004mtn","release_date":"2022-07-15","categories":[{"id":6793},{"id":6012},{"id":300129}]}`:     "compilation (category 300129)",
 		`{"content_id":"ajvrbest00004","release_date":"2026-09-30","categories":[{"id":6793}]}`:                                "compilation (prefix AJVRBEST)",
+		`{"content_id":"h_1285pvtmvr00001","release_date":"2018-08-26","service_code":"mono","categories":[{"id":6793}]}`:      "physical release (mono)",
 		`{"content_id":"1sodsvr00003","release_date":"2026-08-31","series_id":4594464,"categories":[{"id":6793},{"id":6012}]}`: "compilation (series 4594464)",
 		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`:                   "excluded label",
 		`{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793}]}`:             "foreign import (maker 300246)",
@@ -200,6 +201,8 @@ func TestR18dActressName(t *testing.T) {
 		{"1112912", "", "Mochinoyomogi", "Yomogi Mochino"},
 		{"1115109", "", "Minasebaku", "Baku Minase"},
 		{"1096319", "", "Wakanahono", "Hono Wakamiya"},
+		{"1069632", "miru2.jpg", "Miru", "miru"},
+		{"1049866", "taira_hana.jpg", "Heika", "Hana Taira"},
 	}
 	for _, c := range cases {
 		a := gjson.Parse(`{"id":` + c.id + `,"image_url":"` + c.img + `","name_romaji":"` + c.romaji + `"}`)
@@ -413,5 +416,18 @@ func TestAddR18devScraperIDClash(t *testing.T) {
 	addR18devScraper(config.R18devScraperConfig{ID: "single_scene", Name: "Sneaky", Sources: src}, true)
 	if len(r18devRegistered) != 1 || r18devRegistered[0].Name != "KMPVR" {
 		t.Errorf("clashing ids got registered: %+v", r18devRegistered)
+	}
+}
+
+// 1038713 comes back with a line break inside the name
+func TestR18dActressNameWhitespace(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"id":1038713,"image_url":"kikukawa_mituha.jpg","name_romaji":"Mitsuha\n(Mitsuha Kikukawa)"}`: "Mitsuha (Mitsuha Kikukawa)",
+		`{"id":1071691,"image_url":"","name_romaji":"Miiro Nanasaki\n"}`:                               "Miiro Nanasaki",
+		`{"id":1074076,"image_url":"","name_romaji":"Anatsu  Suzune \n"}`:                              "Anatsu Suzune",
+	} {
+		if got := r18dActressName(gjson.Parse(in)); got != want {
+			t.Errorf("%s: got %q, want %q", in, got, want)
+		}
 	}
 }
