@@ -401,3 +401,15 @@ func TestR18devListSourceLimit(t *testing.T) {
 		t.Errorf("last page should end with the undated scene, got %q", last.ReleaseDate)
 	}
 }
+
+func TestAddR18devScraperIDClash(t *testing.T) {
+	saved := r18devRegistered
+	defer func() { r18devRegistered = saved }()
+	r18devRegistered = []R18devScraperInfo{{ID: "r18dev-kmpvr", Name: "KMPVR"}}
+	src := []config.R18devSource{{Type: "label", ID: 1}}
+	addR18devScraper(config.R18devScraperConfig{ID: "KMPVR", Name: "My KMPVR", Sources: src}, true)
+	addR18devScraper(config.R18devScraperConfig{ID: "single_scene", Name: "Sneaky", Sources: src}, true)
+	if len(r18devRegistered) != 1 || r18devRegistered[0].Name != "KMPVR" {
+		t.Errorf("clashing ids got registered: %+v", r18devRegistered)
+	}
+}
