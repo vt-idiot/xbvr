@@ -28,7 +28,7 @@ func TestR18devBuildScene(t *testing.T) {
 		cast                                        []string
 	}{
 		// has a dvd_id (R18.com era)
-		{"84vrkm00139", "VRKM-139", "VRKM", "K M Produce", "VRKM-139 (VR) Ceiling Angle VR", []string{"Kanna Misaki"}},
+		{"84vrkm00139", "VRKM-139", "VRKM", "K M Produce", "VRKM-139 Ceiling Angle VR", []string{"Kanna Misaki"}},
 		// no dvd_id: raw content ID as scene ID, machine translated title -> display ID only
 		{"vrkm01662", "vrkm01662", "VRKM", "K M Produce", "VRKM-1662", []string{"Mina Aise"}},
 		// reissue: suffix stripped from the scene ID
@@ -96,6 +96,14 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 	sc, why, _ := r18devBuildScene(nil, vrBest, "r18dev-test", true)
 	if why != "" || sc.SceneID != "vrkm01903" || sc.Title != "VRKM-1903" {
 		t.Errorf("vrkm01903 single scene: got (%q, %q, %q)", why, sc.SceneID, sc.Title)
+	}
+	// hnvr00132: 58 actresses, categories say original
+	big := r18devFixture(t, "hnvr00132")
+	if _, why, reject := r18devBuildScene(nil, big, "r18dev-test", false); why != "compilation (58 actresses)" || !reject {
+		t.Errorf("hnvr00132 crawl: got (%q, reject=%v)", why, reject)
+	}
+	if _, why, _ := r18devBuildScene(nil, big, "r18dev-test", true); why != "" {
+		t.Errorf("hnvr00132 single scene: got %q", why)
 	}
 	// excluded labels are still excluded on a single scene scrape
 	ovvr := `{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793},{"id":6003}]}`
