@@ -119,6 +119,22 @@ func TestR18devBuildSceneHNVR180(t *testing.T) {
 	}
 }
 
+// hnvr00001 (2017): old "Three Dimensional" (617) tag is dropped like VR Exclusive
+func TestR18devBuildSceneHNVR001(t *testing.T) {
+	sc, why, _ := r18devBuildScene(nil, r18devFixture(t, "hnvr00001"), "r18dev-hnvr", false)
+	if why != "" {
+		t.Fatalf("skipped: %s", why)
+	}
+	for _, tag := range sc.Tags {
+		if strings.EqualFold(tag, "Three Dimensional") || strings.EqualFold(tag, "VR Exclusive") {
+			t.Errorf("tag %q should be dropped", tag)
+		}
+	}
+	if sc.SceneID != "HNVR-001" || sc.Site != "HNVR" {
+		t.Errorf("got SceneID %q Site %q", sc.SceneID, sc.Site)
+	}
+}
+
 func TestR18dActressName(t *testing.T) {
 	cases := []struct{ id, img, romaji, want string }{
 		{"1090262", "aise_mina.jpg", "Aisemina", "Mina Aise"},
