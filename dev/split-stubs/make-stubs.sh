@@ -7,6 +7,8 @@
 # give it (.mp4 included): ffprobe reads the contents, XBVR matches by name.
 #
 # Not copied: bit rate (comes out empty -> XBVR stores 0), file size, OsHash.
+# Frame rate: 59.94 comes out as 19001/317 instead of 60000/1001. XBVR only keeps
+# ceil(num/den) (models.File.VideoAvgFrameRateVal), which is 60 either way.
 #
 # Usage: make-stubs.sh <spec.tsv> <output folder>
 #
@@ -43,6 +45,7 @@ while IFS=$'\t' read -r name codec width height fps duration bitrate; do
 	case "$codec" in
 	hevc) enc=(-c:v libx265 -preset ultrafast -x265-params log-level=error) ;;
 	h264) enc=(-c:v libx264 -preset ultrafast) ;;
+	vp9) enc=(-c:v libvpx-vp9 -deadline realtime -cpu-used 8 -b:v 0 -crf 63) ;;
 	*) echo "skip   $name: codec $codec not handled"; continue ;;
 	esac
 
