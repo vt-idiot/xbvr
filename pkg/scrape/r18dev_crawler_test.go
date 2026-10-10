@@ -215,7 +215,7 @@ func TestR18devPacerBackOff(t *testing.T) {
 	}
 }
 
-func TestR18devLiveGallery(t *testing.T) {
+func TestR18devImageGone(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ok.jpg":
@@ -223,18 +223,33 @@ func TestR18devLiveGallery(t *testing.T) {
 		case "/delisted.jpg":
 			http.Redirect(w, r, "https://pics.dmm.com/mono/movie/n/now_printing/now_printing.jpg", http.StatusFound)
 		case "/moved.jpg":
-			http.Redirect(w, r, "/ok.jpg", http.StatusFound)
+			http.Redirect(w, r, "https://awsimgsrc.dmm.com/dig/digital/video/x/xpl.jpg", http.StatusFound)
 		default:
-			w.WriteHeader(404)
+			w.WriteHeader(404) // NOW PRINTING for upcoming scenes
 		}
 	}))
 	defer srv.Close()
 
+	defer func(d time.Duration) { r18devDmmPace.delay = d }(r18devDmmPace.delay)
+	r18devDmmPace.delay = 0
+
 	c := newR18devClient()
-	in := []string{srv.URL + "/ok.jpg", srv.URL + "/delisted.jpg", srv.URL + "/moved.jpg", srv.URL + "/gone.jpg"}
-	got := strings.Join(c.liveGallery(in), " ")
-	want := srv.URL + "/ok.jpg " + srv.URL + "/moved.jpg"
-	if got != want {
-		t.Errorf("got %s, want %s", got, want)
+	cases := map[string]bool{"/ok.jpg": false, "/delisted.jpg": true, "/moved.jpg": false, "/upcoming.jpg": true}
+	for path, want := range cases {
+		if got, err := c.imageGone(srv.URL + path); err != nil || got != want {
+			t.Errorf("%s: got (%v, %v), want %v", path, got, err, want)
+		}
+	}
+	if !c.galleryGone([]string{srv.URL + "/delisted.jpg", srv.URL + "/ok.jpg"}) {
+		t.Error("galleryGone: first image delisted, want true")
+	}
+	if c.galleryGone([]string{srv.URL + "/ok.jpg", srv.URL + "/delisted.jpg"}) {
+		t.Error("galleryGone: only the first image is checked, want false")
+	}
+	if c.galleryGone(nil) {
+		t.Error("galleryGone(nil) = true")
+	}
+	if c.coverReady(srv.URL+"/upcoming.jpg") || c.coverReady(srv.URL+"/delisted.jpg") || !c.coverReady(srv.URL+"/ok.jpg") {
+		t.Error("coverReady wrong")
 	}
 }
