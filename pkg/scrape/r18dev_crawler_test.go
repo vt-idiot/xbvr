@@ -82,6 +82,7 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6608}]}`:                        "compilation (category 6608)",
 		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6609}]}`:                        "compilation (category 6609)",
 		`{"content_id":"1seth00016","release_date":"2024-08-26","categories":[{"id":6793},{"id":7267}]}`:                      "compilation (category 7267)",
+		`{"content_id":"1sodsvr00006","release_date":"2026-10-12","categories":[{"id":6793},{"id":6925}]}`:                    "compilation (prefix SODSVR)",
 		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`:                  "excluded label",
 		`{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793}]}`:            "foreign import (maker 300246)",
 		`{"content_id":"h_1274vrp00012","release_date":"2019-06-20","maker_id":40392,"categories":[{"id":6793},{"id":4022}]}`: "foreign import (category 4022)",
@@ -111,6 +112,9 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 	}
 	if _, why, _ := r18devBuildScene(nil, big, "r18dev-test", true); why != "" {
 		t.Errorf("hnvr00132 single scene: got %q", why)
+	}
+	if why := r18devIsCompilation(`{"content_id":"13dsvr02001","categories":[{"id":6793}]}`, map[int64]bool{6793: true}); why != "" {
+		t.Errorf("13dsvr02001: got %q, want not a compilation", why)
 	}
 	// excluded labels are still excluded on a single scene scrape
 	ovvr := `{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793},{"id":6003}]}`
