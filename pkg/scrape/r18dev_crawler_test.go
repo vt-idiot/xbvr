@@ -1,9 +1,13 @@
 package scrape
 
 import (
+	"net/http"
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-resty/resty/v2"
 )
 
 func r18devFixture(t *testing.T, name string) string {
@@ -69,6 +73,7 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 	cases := map[string]string{
 		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":2001}]}`:                   "not VR",
 		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6003}]}`:       "compilation (category 6003)",
+		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6608}]}`:       "compilation (category 6608)",
 		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6609}]}`:       "compilation (category 6609)",
 		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`: "excluded label",
 	}
@@ -115,5 +120,46 @@ func TestR18devContentIDFromCover(t *testing.T) {
 		if got := r18devContentIDFromCover(in); got != want {
 			t.Errorf("r18devContentIDFromCover(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestR18devRetryAfter(t *testing.T) {
+	res := func(h string) *resty.Response {
+		r := &http.Response{Header: http.Header{}}
+		if h != "" {
+			r.Header.Set("Retry-After", h)
+		}
+		return &resty.Response{RawResponse: r}
+	}
+	cases := []struct {
+		header string
+		try    int
+		want   time.Duration
+	}{
+		{"", 1, 30 * time.Second}, // no header: 30s per try
+		{"", 2, 60 * time.Second},
+		{"45", 1, 45 * time.Second},
+		{"0", 1, 5 * time.Second},    // never less than 5s
+		{"3600", 1, 5 * time.Minute}, // never more than 5 minutes
+		{"junk", 1, 30 * time.Second},
+	}
+	for _, c := range cases {
+		if got := r18devRetryAfter(res(c.header), c.try); got != c.want {
+			t.Errorf("Retry-After %q try %d: got %s, want %s", c.header, c.try, got, c.want)
+		}
+	}
+}
+
+func TestR18devPacerBackOff(t *testing.T) {
+	p := &r18devPacer{delay: r18devDelay}
+	for i := 0; i < 20; i++ {
+		p.backOff(0)
+	}
+	if p.delay != r18devMaxDelay {
+		t.Errorf("delay after many 429s = %s, want %s", p.delay, r18devMaxDelay)
+	}
+	p.reset(r18devDelay)
+	if p.delay != r18devDelay {
+		t.Errorf("delay after reset = %s, want %s", p.delay, r18devDelay)
 	}
 }
