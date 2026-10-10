@@ -3,6 +3,7 @@ package api
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbapps/xbvr/pkg/models"
 )
@@ -105,5 +106,26 @@ func TestSplitBaseID(t *testing.T) {
 		if got := splitBaseID(in); got != want {
 			t.Errorf("splitBaseID(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestSplitReleaseDate(t *testing.T) {
+	day := time.Date(2021, 3, 20, 0, 0, 0, 0, time.UTC)
+	// parts 4, 3, 2, 1 in creation order (highest first)
+	var dates []time.Time
+	for i := 0; i < 4; i++ {
+		dates = append(dates, splitReleaseDate(day, i))
+	}
+	if dates[0] != day.Add(time.Second) || dates[3] != day.Add(4*time.Second) {
+		t.Errorf("part 4 %v, part 1 %v", dates[0], dates[3])
+	}
+	// newest first: part 1, 2, 3, 4, then the original
+	for i := 1; i < 4; i++ {
+		if !dates[i].After(dates[i-1]) {
+			t.Errorf("part %d is not newer than part %d", 4-i, 5-i)
+		}
+	}
+	if dates[3].Format("2006-01-02") != "2021-03-20" {
+		t.Errorf("date changed: %v", dates[3])
 	}
 }
