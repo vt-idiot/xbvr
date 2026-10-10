@@ -447,3 +447,14 @@ func TestR18dActressNameLatinKanji(t *testing.T) {
 		}
 	}
 }
+
+func TestR18devForeignImportException(t *testing.T) {
+	rvr := `{"content_id":"rvr00064","release_date":"2021-04-19","maker_id":5665,"categories":[{"id":6793},{"id":4022}]}`
+	if _, why, _ := r18devBuildScene(nil, rvr, "r18dev-test", false); why != "" {
+		t.Errorf("rvr00064 is real JAV, got %q", why)
+	}
+	wavr := `{"content_id":"wavr00112","release_date":"2020-07-08","maker_id":40006,"categories":[{"id":6793},{"id":4022}]}`
+	if _, why, _ := r18devBuildScene(nil, wavr, "r18dev-test", false); why != "foreign import (category 4022)" {
+		t.Errorf("wavr00112: got %q", why)
+	}
+}
