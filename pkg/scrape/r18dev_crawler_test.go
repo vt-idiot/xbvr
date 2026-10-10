@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/tidwall/gjson"
 )
 
 func r18devFixture(t *testing.T, name string) string {
@@ -102,10 +103,27 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 	}
 }
 
-func TestR18dActressOverrides(t *testing.T) {
-	sc := r18dSceneFromJSON(`{"content_id":"abc00001","actresses":[{"id":1092214,"name_romaji":"Tachibanahinata","name_kanji":"橘内ひなた"}]}`)
-	if len(sc.Cast) != 1 || sc.Cast[0] != "Hinata Tachibana" {
-		t.Errorf("Cast %v, want [Hinata Tachibana]", sc.Cast)
+func TestR18dActressName(t *testing.T) {
+	cases := []struct{ id, img, romaji, want string }{
+		{"1090262", "aise_mina.jpg", "Aisemina", "Mina Aise"},
+		// trailing number + Kunrei-shiki filename vs Hepburn name_romaji
+		{"1092214", "tatibana_hinata2.jpg", "Tachibanahinata", "Hinata Tachibana"},
+		{"1092211", "adati_yuri2.jpg", "Adachiyuri", "Yuri Adachi"},
+		{"1", "simizu_tisato.jpg", "Shimizuchisato", "Chisato Shimizu"},
+		{"2", "hukuda_zyun.jpg", "Fukudajun", "Jun Fukuda"},
+		{"3", "matumoto_syouko.jpg", "Matsumotoshouko", "Shouko Matsumoto"},
+		// already split, no clean split, no match: untouched
+		{"4", "ozaki_erika.jpg", "Erika Ozaki", "Erika Ozaki"},
+		{"5", "aika.jpg", "AIKA", "AIKA"},
+		{"6", "tanaka_mai.jpg", "Suzukimai", "Suzukimai"},
+		// override wins
+		{"1112912", "", "Mochinoyomogi", "Yomogi Mochino"},
+	}
+	for _, c := range cases {
+		a := gjson.Parse(`{"id":` + c.id + `,"image_url":"` + c.img + `","name_romaji":"` + c.romaji + `"}`)
+		if got := r18dActressName(a); got != c.want {
+			t.Errorf("%s / %s: got %q, want %q", c.img, c.romaji, got, c.want)
+		}
 	}
 }
 
