@@ -136,6 +136,26 @@ func TestR18devBuildSceneHNVR001(t *testing.T) {
 	}
 }
 
+func TestR18dUncreditedAndVRPrefix(t *testing.T) {
+	// hnvr00149: no actresses, title_en starts with "VR]" (no "[")
+	sc := r18dSceneFromJSON(r18devFixture(t, "hnvr00149"))
+	if !strings.Contains(strings.Join(sc.Tags, "|"), "uncredited javr") {
+		t.Errorf("hnvr00149 tags %v, want uncredited javr", sc.Tags)
+	}
+	if !strings.HasPrefix(sc.Synopsis, "Naked Kendo") {
+		t.Errorf("hnvr00149 synopsis %q, want the VR] prefix gone", sc.Synopsis)
+	}
+	// hnvr00132: 58 actresses (72 girls in the title), not uncredited
+	sc = r18dSceneFromJSON(r18devFixture(t, "hnvr00132"))
+	if len(sc.Cast) != 58 || strings.Contains(strings.Join(sc.Tags, "|"), "uncredited javr") {
+		t.Errorf("hnvr00132: %d cast, tags %v", len(sc.Cast), sc.Tags)
+	}
+	sc = r18dSceneFromJSON(`{"content_id":"x","title_en":"[VR] Real Title","title_en_is_machine_translation":false,"actresses":[{"id":1,"name_romaji":"A B"}]}`)
+	if sc.Title != "Real Title" {
+		t.Errorf("Title %q", sc.Title)
+	}
+}
+
 func TestR18dActressName(t *testing.T) {
 	cases := []struct{ id, img, romaji, want string }{
 		{"1090262", "aise_mina.jpg", "Aisemina", "Mina Aise"},
