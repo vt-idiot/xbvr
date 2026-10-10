@@ -432,3 +432,18 @@ func TestR18dActressNameWhitespace(t *testing.T) {
 		}
 	}
 }
+
+// A Latin-letter kanji field is FANZA's own spelling and wins over name_romaji
+func TestR18dActressNameLatinKanji(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"id":1039321,"image_url":"risa4.jpg","name_romaji":"Risa","name_kanji":"RISA"}`:                                "RISA",
+		`{"id":1008887,"image_url":"aika3.jpg","name_romaji":"AIKA","name_kanji":"AIKA"}`:                                "AIKA",
+		`{"id":1080816,"image_url":"aberade_nzyaa.jpg","name_romaji":"Aberadenjaa","name_kanji":"Abella Danger"}`:        "Abella Danger",
+		`{"id":1,"image_url":"aise_mina.jpg","name_romaji":"Aisemina","name_kanji":"藍瀬ミナ"}`:                              "Mina Aise",
+		`{"id":2,"image_url":"","name_romaji":"Blake Blossom (Blake Blossom)","name_kanji":"Blake Blossom（ブレイク・ブロッサム）"}`: "Blake Blossom (Blake Blossom)",
+	} {
+		if got := r18dActressName(gjson.Parse(in)); got != want {
+			t.Errorf("%s: got %q, want %q", in, got, want)
+		}
+	}
+}
