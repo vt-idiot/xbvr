@@ -83,6 +83,8 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6609}]}`:                         "compilation (category 6609)",
 		`{"content_id":"1seth00016","release_date":"2024-08-26","categories":[{"id":6793},{"id":7267}]}`:                       "compilation (category 7267)",
 		`{"content_id":"1sodsvr00006","release_date":"2026-10-12","categories":[{"id":6793},{"id":6925}]}`:                     "compilation (prefix SODSVR)",
+		`{"content_id":"ajvrbx00004mtn","release_date":"2022-07-15","categories":[{"id":6793},{"id":6012},{"id":300129}]}`:     "compilation (category 300129)",
+		`{"content_id":"ajvrbest00004","release_date":"2026-09-30","categories":[{"id":6793}]}`:                                "compilation (prefix AJVRBEST)",
 		`{"content_id":"1sodsvr00003","release_date":"2026-08-31","series_id":4594464,"categories":[{"id":6793},{"id":6012}]}`: "compilation (series 4594464)",
 		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`:                   "excluded label",
 		`{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793}]}`:             "foreign import (maker 300246)",
