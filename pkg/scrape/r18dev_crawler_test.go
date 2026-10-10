@@ -103,6 +103,22 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 	}
 }
 
+// hnvr00180: 12 actresses, "Over 4 Hours" (6012) is not a compilation and must not be dropped
+func TestR18devBuildSceneHNVR180(t *testing.T) {
+	body := strings.Replace(r18devFixture(t, "hnvr00180"), `"2026-10-26"`, `"2020-01-01"`, 1)
+	sc, why, _ := r18devBuildScene(nil, body, "r18dev-hnvr", false)
+	if why != "" {
+		t.Fatalf("skipped: %s", why)
+	}
+	want := "Natsu Hinata|Misao Oguri|Kurea Hasumi|Miyu Aizawa|Rika Tsubaki|Rin Suzunoya|Karin Kitaoka|Kaho Hanamori|Sumire Kuramoto|Yui Tenma|Moka Haruhi|Waka Misono"
+	if got := strings.Join(sc.Cast, "|"); got != want {
+		t.Errorf("Cast %s, want %s", got, want)
+	}
+	if sc.SceneID != "hnvr00180" || sc.Site != "HNVR" || sc.Title != "HNVR-180" {
+		t.Errorf("got SceneID %q Site %q Title %q", sc.SceneID, sc.Site, sc.Title)
+	}
+}
+
 func TestR18dActressName(t *testing.T) {
 	cases := []struct{ id, img, romaji, want string }{
 		{"1090262", "aise_mina.jpg", "Aisemina", "Mina Aise"},
