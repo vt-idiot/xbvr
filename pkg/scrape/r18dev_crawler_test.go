@@ -191,6 +191,7 @@ func TestR18dActressName(t *testing.T) {
 		{"6", "tanaka_mai.jpg", "Suzukimai", "Suzukimai"},
 		// override wins
 		{"1112912", "", "Mochinoyomogi", "Yomogi Mochino"},
+		{"1115109", "", "Minasebaku", "Baku Minase"},
 	}
 	for _, c := range cases {
 		a := gjson.Parse(`{"id":` + c.id + `,"image_url":"` + c.img + `","name_romaji":"` + c.romaji + `"}`)
