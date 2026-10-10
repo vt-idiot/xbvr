@@ -202,6 +202,7 @@ func TestR18dActressName(t *testing.T) {
 		{"1115109", "", "Minasebaku", "Baku Minase"},
 		{"1096319", "", "Wakanahono", "Hono Wakamiya"},
 		{"1069632", "miru2.jpg", "Miru", "miru"},
+		{"1056315", "maki3.jpg", "Maki", "maki"},
 		{"1049866", "taira_hana.jpg", "Heika", "Hana Taira"},
 	}
 	for _, c := range cases {
