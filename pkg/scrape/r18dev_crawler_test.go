@@ -33,7 +33,7 @@ func TestR18devBuildScene(t *testing.T) {
 		{"h_1711devr00001", "h_1711devr00001", "DEVR", "DOC", "DEVR-001", []string{"Sumire Kuramoto"}},
 	}
 	for _, c := range cases {
-		sc, why, _ := r18devBuildScene(nil, r18devFixture(t, c.fixture), "r18dev-test")
+		sc, why, _ := r18devBuildScene(nil, r18devFixture(t, c.fixture), "r18dev-test", false)
 		if why != "" {
 			t.Errorf("%s: skipped: %s", c.fixture, why)
 			continue
@@ -68,14 +68,39 @@ func TestR18devBuildScene(t *testing.T) {
 func TestR18devBuildSceneRejects(t *testing.T) {
 	cases := map[string]string{
 		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":2001}]}`:                   "not VR",
-		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6003}]}`:       "compilation",
+		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6003}]}`:       "compilation (category 6003)",
+		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6609}]}`:       "compilation (category 6609)",
 		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`: "excluded label",
 	}
 	for body, want := range cases {
-		_, why, reject := r18devBuildScene(nil, body, "r18dev-test")
+		_, why, reject := r18devBuildScene(nil, body, "r18dev-test", false)
 		if why != want || !reject {
 			t.Errorf("got (%q, reject=%v), want (%q, reject=true) for %s", why, reject, want, body)
 		}
+	}
+
+	// vrkm01903: KMP "VR BEST", 1136 minutes, no 6003
+	vrBest := r18devFixture(t, "vrkm01903")
+	if _, why, reject := r18devBuildScene(nil, vrBest, "r18dev-test", false); why != "compilation (series 217739)" || !reject {
+		t.Errorf("vrkm01903 crawl: got (%q, reject=%v), want compilation (series 217739)", why, reject)
+	}
+	// single scene / rescrape lets it through (moved out of the cover check window, no network here)
+	vrBest = strings.Replace(vrBest, `"2026-10-23"`, `"2020-01-01"`, 1)
+	sc, why, _ := r18devBuildScene(nil, vrBest, "r18dev-test", true)
+	if why != "" || sc.SceneID != "vrkm01903" || sc.Title != "VRKM-1903" {
+		t.Errorf("vrkm01903 single scene: got (%q, %q, %q)", why, sc.SceneID, sc.Title)
+	}
+	// excluded labels are still excluded on a single scene scrape
+	ovvr := `{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793},{"id":6003}]}`
+	if _, why, _ := r18devBuildScene(nil, ovvr, "r18dev-test", true); why != "excluded label" {
+		t.Errorf("ovvr single scene: got %q, want excluded label", why)
+	}
+}
+
+func TestR18dActressOverrides(t *testing.T) {
+	sc := r18dSceneFromJSON(`{"content_id":"abc00001","actresses":[{"id":1092214,"name_romaji":"Tachibanahinata","name_kanji":"橘内ひなた"}]}`)
+	if len(sc.Cast) != 1 || sc.Cast[0] != "Hinata Tachibana" {
+		t.Errorf("Cast %v, want [Hinata Tachibana]", sc.Cast)
 	}
 }
 
