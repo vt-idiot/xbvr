@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
+	"github.com/xbapps/xbvr/pkg/config"
 )
 
 func r18devFixture(t *testing.T, name string) string {
@@ -286,5 +287,47 @@ func TestR18devImageGone(t *testing.T) {
 	}
 	if c.coverReady(srv.URL+"/upcoming.jpg") || c.coverReady(srv.URL+"/delisted.jpg") || !c.coverReady(srv.URL+"/ok.jpg") {
 		t.Error("coverReady wrong")
+	}
+}
+
+func TestR18devOwner(t *testing.T) {
+	saved := r18devRegistered
+	defer func() { r18devRegistered = saved }()
+	r18devRegistered = []R18devScraperInfo{
+		{ID: "r18dev-8kvr", Sources: []config.R18devSource{{Type: "category", ID: 307935}}, Exclusive: true},
+		{ID: "r18dev-kmpvr", Sources: []config.R18devSource{{Type: "label", ID: 25637}}},
+		{ID: "r18dev-color", Sources: []config.R18devSource{{Type: "studio", ID: 46628}}},
+		{ID: "r18dev-mykmp", Sources: []config.R18devSource{{Type: "label", ID: 25637}}, Custom: true},
+	}
+	vrkm8k := `{"label_id":25637,"maker_id":40071,"categories":[{"id":6793},{"id":307935}]}`
+	savr := `{"label_id":25997,"maker_id":46628,"categories":[{"id":6793}]}`
+	other := `{"label_id":1,"maker_id":2,"categories":[{"id":6793}]}`
+
+	cases := []struct {
+		name, body string
+		enabled    map[string]bool
+		want       string
+	}{
+		{"label beats category", vrkm8k, map[string]bool{"r18dev-8kvr": true, "r18dev-kmpvr": true}, "r18dev-kmpvr"},
+		{"enabled beats label", vrkm8k, map[string]bool{"r18dev-8kvr": true}, "r18dev-8kvr"},
+		{"nothing enabled: label", vrkm8k, map[string]bool{}, "r18dev-kmpvr"},
+		{"official before custom", vrkm8k, map[string]bool{"r18dev-kmpvr": true, "r18dev-mykmp": true}, "r18dev-kmpvr"},
+		{"enabled custom beats disabled official", vrkm8k, map[string]bool{"r18dev-mykmp": true}, "r18dev-mykmp"},
+		{"maker", savr, map[string]bool{}, "r18dev-color"},
+		{"nobody", other, map[string]bool{"r18dev-kmpvr": true}, ""},
+		{"disabled mode takes nothing", `{"label_id":2066504,"maker_id":6716,"categories":[{"id":307935}]}`, map[string]bool{}, ""},
+		{"enabled mode", `{"label_id":2066504,"maker_id":6716,"categories":[{"id":307935}]}`, map[string]bool{"r18dev-8kvr": true}, "r18dev-8kvr"},
+	}
+	for _, c := range cases {
+		if got := r18devOwner(c.body, c.enabled); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+
+	if !r18devIsOrphan(r18devSingleSceneID) || !r18devIsOrphan("r18dev-deleted") {
+		t.Error("Other Studios and unregistered R18.dev scrapers own orphans")
+	}
+	if r18devIsOrphan("r18dev-kmpvr") || r18devIsOrphan("") || r18devIsOrphan("slr-single_scene") {
+		t.Error("registered or foreign owners are not orphans")
 	}
 }
