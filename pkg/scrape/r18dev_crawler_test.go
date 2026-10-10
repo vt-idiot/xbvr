@@ -1,9 +1,12 @@
 package scrape
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -329,5 +332,64 @@ func TestR18devOwner(t *testing.T) {
 	}
 	if r18devIsOrphan("r18dev-kmpvr") || r18devIsOrphan("") || r18devIsOrphan("slr-single_scene") {
 		t.Error("registered or foreign owners are not orphans")
+	}
+}
+
+type r18devFakeLists func(*http.Request) *http.Response
+
+func (f r18devFakeLists) RoundTrip(r *http.Request) (*http.Response, error) { return f(r), nil }
+
+// A 12 page list, newest first. pageAge(n) = how many days old the scenes on page n are
+// (negative: preorders). The very last scene has no release date.
+func TestR18devListSourceLimit(t *testing.T) {
+	defer func(d time.Duration) { r18devPace.delay = d }(r18devPace.delay)
+	r18devPace.delay = 0
+
+	const pages = 12
+	var pageAge func(page int) int
+	var fetched []string
+	c := newR18devClient()
+	c.http.SetTransport(r18devFakeLists(func(r *http.Request) *http.Response {
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		fetched = append(fetched, strconv.Itoa(page))
+		date := `"` + time.Now().AddDate(0, 0, -pageAge(page)).Format("2006-01-02") + ` 10:00:00"`
+		var rows []string
+		for i := 0; i < r18devPageSize; i++ {
+			d := date
+			if page == pages && i == r18devPageSize-1 {
+				d = "null"
+			}
+			rows = append(rows, fmt.Sprintf(`{"content_id":"abc%d","release_date":%s}`, page*1000+i, d))
+		}
+		body := `{"results":[` + strings.Join(rows, ",") + `],"total_results":` + strconv.Itoa(pages*r18devPageSize) + `}`
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}
+	}))
+	src := config.R18devSource{Type: "category", ID: 6925}
+	run := func(limit bool) ([]r18devListItem, string) {
+		fetched = nil
+		items, err := c.listSource(src, limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return items, strings.Join(fetched, ",")
+	}
+
+	// High-Quality VR: about 11 days a page, page 1 is 6 weeks of preorders
+	pageAge = func(n int) int { return -42 + 11*n }
+	if items, got := run(false); got != "1,2,3,4,5,6,7,8,9,10,11,12" || len(items) != pages*r18devPageSize {
+		t.Errorf("full crawl: fetched %s, %d items", got, len(items))
+	}
+	// cutoff 37 days back: page 7 ends at 35 days (still in), page 8 at 46 (out, stop), + last
+	if _, got := run(true); got != "1,2,3,4,5,6,7,8,12" {
+		t.Errorf("HQVR limited: fetched %s", got)
+	}
+	// A studio label: page 1 alone spans months. Pages 1, 2 and the last one.
+	pageAge = func(n int) int { return -30 + 120*n }
+	items, got := run(true)
+	if got != "1,2,12" {
+		t.Errorf("label limited: fetched %s", got)
+	}
+	if last := items[len(items)-1]; last.ReleaseDate != "" {
+		t.Errorf("last page should end with the undated scene, got %q", last.ReleaseDate)
 	}
 }
