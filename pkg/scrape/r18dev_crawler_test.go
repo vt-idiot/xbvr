@@ -73,12 +73,13 @@ func TestR18devBuildScene(t *testing.T) {
 
 func TestR18devBuildSceneRejects(t *testing.T) {
 	cases := map[string]string{
-		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":2001}]}`:                         "not VR",
-		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6003}]}`:             "compilation (category 6003)",
-		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6608}]}`:             "compilation (category 6608)",
-		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6609}]}`:             "compilation (category 6609)",
-		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`:       "excluded label",
-		`{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793}]}`: "excluded maker",
+		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":2001}]}`:                                    "not VR",
+		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6003}]}`:                        "compilation (category 6003)",
+		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6608}]}`:                        "compilation (category 6608)",
+		`{"content_id":"abc00001","release_date":"2020-01-01","categories":[{"id":6793},{"id":6609}]}`:                        "compilation (category 6609)",
+		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`:                  "excluded label",
+		`{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793}]}`:            "foreign import (maker 300246)",
+		`{"content_id":"h_1274vrp00012","release_date":"2019-06-20","maker_id":40392,"categories":[{"id":6793},{"id":4022}]}`: "foreign import (category 4022)",
 	}
 	for body, want := range cases {
 		_, why, reject := r18devBuildScene(nil, body, "r18dev-test", false)
@@ -111,9 +112,10 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 	if _, why, _ := r18devBuildScene(nil, ovvr, "r18dev-test", true); why != "excluded label" {
 		t.Errorf("ovvr single scene: got %q, want excluded label", why)
 	}
-	slr := `{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793}]}`
-	if _, why, _ := r18devBuildScene(nil, slr, "r18dev-test", true); why != "excluded maker" {
-		t.Errorf("SLR single scene: got %q, want excluded maker", why)
+	// foreign imports get through on a single scene scrape, like compilations
+	slr := `{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793},{"id":4022}]}`
+	if _, why, _ := r18devBuildScene(nil, slr, "r18dev-test", true); why != "" {
+		t.Errorf("SLR single scene: got %q, want it scraped", why)
 	}
 }
 
