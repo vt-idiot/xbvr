@@ -145,3 +145,20 @@ func TestR18devDisplayPrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestR18devContentIDFromURL(t *testing.T) {
+	cases := map[string]string{
+		"https://r18.dev/videos/vod/movies/detail/-/id=vrkm01662/":             "vrkm01662",
+		"https://r18.dev/videos/vod/movies/detail/-/combined=84vrkm00139/json": "84vrkm00139",
+		"https://www.dmm.co.jp/en/digital/videoa/-/detail/=/cid=84vrkm00139/":  "84vrkm00139",
+		"https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=hnvr00144re01/":   "hnvr00144",
+		"https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=h_1337wvr100001/": "h_1337wvr100001",
+		"https://www.javdatabase.com/movies/vrkm-139/":                         "",
+		"https://www.sexlikereal.com/scenes/some-scene-12345":                  "",
+	}
+	for in, want := range cases {
+		if got := r18devContentIDFromURL(in); got != want {
+			t.Errorf("r18devContentIDFromURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
