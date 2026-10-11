@@ -11,10 +11,14 @@ func TestR18devNormalizeDVDID(t *testing.T) {
 		"EXVR-149":   "EXVR-149",
 		"VRKM-1662":  "VRKM-1662",
 		"OYCVR-025A": "OYCVR-025A",
-		// 4 digits as R18.dev prints them (SOD's 3DSVR has them on the cover), kept
+		// SOD prints 4 digits on the cover, keep them
 		"3DSVR-0137": "3DSVR-0137",
 		"3DSVR-0878": "3DSVR-0878",
-		"AVVR-0400":  "AVVR-0400", // not SOD: AVVR's own maker (40380, h_1245)
+		"SODVR-0050": "SODVR-0050",
+		// everyone else R18.dev pads to 4 gets 3 (AVVR covers carry no number, VRM only reached 8)
+		"AVVR-0400": "AVVR-400",
+		"VRM-0008":  "VRM-008",
+		"KPVR-0001": "KPVR-001",
 		// missing dash (old R18.com era)
 		"CAFR009": "CAFR-009",
 		"DSVR027": "DSVR-027",
@@ -29,13 +33,13 @@ func TestR18devNormalizeDVDID(t *testing.T) {
 		"WVR9C-01":   "WVR9C-001",
 		// lowercase
 		"ftvr-007":   "FTVR-007",
-		"tami0003":   "TAMI-0003", // 4 digits stay 4
+		"tami0003":   "TAMI-003", // padded to 4, only ever reached 5
 		"3dsvr-0140": "3DSVR-0140",
 		// never letters right after the dash
 		"WVR6-D071":     "WVR6D-071",
 		"YP-Y003":       "YPY-003",
 		"YP-P004":       "YPP-004",
-		"Booyah-VR0002": "BOOYAHVR-0002",
+		"Booyah-VR0002": "BOOYAHVR-002",
 		// part letters
 		"VRAD801B": "VRAD-801B",
 		// junk stays junk
@@ -67,7 +71,7 @@ func TestR18devDisplayID(t *testing.T) {
 		"bibivr00176":       "BIBIVR-176",
 		// SOD 3D series keeps its 3
 		"13dsvr02015":  "3DSVR-2015",
-		"13dsvr00878":  "3DSVR-878",
+		"13dsvr00878":  "3DSVR-0878", // same as its dvd_id, for SOD scenes R18.dev has none for
 		"13dsivr00001": "3DSIVR-001",
 		"1sodsvr00006": "SODSVR-006",
 		// reissues
