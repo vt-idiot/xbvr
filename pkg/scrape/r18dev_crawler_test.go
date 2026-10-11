@@ -460,7 +460,9 @@ func TestR18dActressNameLatinKanji(t *testing.T) {
 		`{"id":1008887,"image_url":"aika3.jpg","name_romaji":"AIKA","name_kanji":"AIKA"}`:                                "AIKA",
 		`{"id":1080816,"image_url":"aberade_nzyaa.jpg","name_romaji":"Aberadenjaa","name_kanji":"Abella Danger"}`:        "Abella Danger",
 		`{"id":1,"image_url":"aise_mina.jpg","name_romaji":"Aisemina","name_kanji":"藍瀬ミナ"}`:                              "Mina Aise",
-		`{"id":2,"image_url":"","name_romaji":"Blake Blossom (Blake Blossom)","name_kanji":"Blake Blossom（ブレイク・ブロッサム）"}`: "Blake Blossom (Blake Blossom)",
+		`{"id":2,"image_url":"","name_romaji":"Blake Blossom (Blake Blossom)","name_kanji":"Blake Blossom（ブレイク・ブロッサム）"}`: "Blake Blossom",
+		`{"id":26375,"image_url":"","name_romaji":"Rei Mizuna (Rei Mizuna)","name_kanji":"みづなれい（みずなれい）"}`:                "Rei Mizuna",
+		`{"id":1038712,"image_url":"","name_romaji":"Nonoka Sato (Momoka Kato)","name_kanji":"佐藤ののか（加藤ももか）"}`:            "Nonoka Sato (Momoka Kato)",
 	} {
 		if got := r18dActressName(gjson.Parse(in)); got != want {
 			t.Errorf("%s: got %q, want %q", in, got, want)
