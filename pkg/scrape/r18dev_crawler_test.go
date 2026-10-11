@@ -454,7 +454,11 @@ func TestR18devForeignImportException(t *testing.T) {
 		t.Errorf("rvr00064 is real JAV, got %q", why)
 	}
 	wavr := `{"content_id":"wavr00112","release_date":"2020-07-08","maker_id":40006,"categories":[{"id":6793},{"id":4022}]}`
-	if _, why, _ := r18devBuildScene(nil, wavr, "r18dev-test", false); why != "foreign import (category 4022)" {
-		t.Errorf("wavr00112: got %q", why)
+	if _, why, _ := r18devBuildScene(nil, wavr, "r18dev-test", false); why != "" {
+		t.Errorf("wavr00112 is real JAV, got %q", why)
+	}
+	slr := `{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793},{"id":4022}]}`
+	if _, why, _ := r18devBuildScene(nil, slr, "r18dev-test", false); why != "foreign import (category 4022)" {
+		t.Errorf("SLR: got %q", why)
 	}
 }
