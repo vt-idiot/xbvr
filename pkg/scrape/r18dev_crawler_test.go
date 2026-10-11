@@ -85,6 +85,7 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 		`{"content_id":"1sodsvr00006","release_date":"2026-10-12","categories":[{"id":6793},{"id":6925}]}`:                     "compilation (prefix SODSVR)",
 		`{"content_id":"ajvrbx00004mtn","release_date":"2022-07-15","categories":[{"id":6793},{"id":6012},{"id":300129}]}`:     "compilation (category 300129)",
 		`{"content_id":"ajvrbest00004","release_date":"2026-09-30","categories":[{"id":6793}]}`:                                "compilation (prefix AJVRBEST)",
+		`{"content_id":"nkovr00008","release_date":"2026-01-30","categories":[{"id":6793},{"id":6925}]}`:                       "compilation (prefix NKOVR)",
 		`{"content_id":"h_1285pvtmvr00001","release_date":"2018-08-26","service_code":"mono","categories":[{"id":6793}]}`:      "physical release (mono)",
 		`{"content_id":"1sodsvr00003","release_date":"2026-08-31","series_id":4594464,"categories":[{"id":6793},{"id":6012}]}`: "compilation (series 4594464)",
 		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`:                   "excluded label",
