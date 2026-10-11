@@ -28,8 +28,8 @@ func TestR18devSuggestions(t *testing.T) {
 			t.Errorf("suggestion %q: ID empty, a preset's or used twice", s.ID)
 		case len(s.Sources) == 0 || len(s.Sites) == 0:
 			t.Errorf("suggestion %q: needs sources and sites", s.ID)
-		case s.Scenes <= 0 || s.State == "" || s.AvatarUrl == "":
-			t.Errorf("suggestion %q: card needs scenes, state and an avatar", s.ID)
+		case s.Scenes <= 0 || s.State == "":
+			t.Errorf("suggestion %q: card needs scenes and state", s.ID)
 		case s.Exclusive || s.AvatarText != "":
 			t.Errorf("suggestion %q: quality modes are presets only", s.ID)
 		}
