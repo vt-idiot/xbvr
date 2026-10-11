@@ -11,10 +11,10 @@ func TestR18devNormalizeDVDID(t *testing.T) {
 		"EXVR-149":   "EXVR-149",
 		"VRKM-1662":  "VRKM-1662",
 		"OYCVR-025A": "OYCVR-025A",
-		// SOD prints 4 digits on the cover, keep them
+		// 4 digits as R18.dev prints them (SOD's 3DSVR has them on the cover), kept
 		"3DSVR-0137": "3DSVR-0137",
 		"3DSVR-0878": "3DSVR-0878",
-		"AVVR-0400":  "AVVR-0400",
+		"AVVR-0400":  "AVVR-0400", // not SOD: AVVR's own maker (40380, h_1245)
 		// missing dash (old R18.com era)
 		"CAFR009": "CAFR-009",
 		"DSVR027": "DSVR-027",
