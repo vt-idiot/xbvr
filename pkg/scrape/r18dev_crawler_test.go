@@ -94,6 +94,7 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 		`{"content_id":"maxvr00140","release_date":"2023-10-18","categories":[{"id":6793},{"id":6925}]}`:                       "compilation (known)",
 		`{"content_id":"55tmavr00181re01","release_date":"2022-12-30","categories":[{"id":6793},{"id":6012}]}`:                 "compilation (known)",
 		`{"content_id":"maxavrf00001","release_date":"2020-12-18","categories":[{"id":6793}]}`:                                 "compilation (prefix MAXAVRF)",
+		`{"content_id":"dpvrs00001","release_date":"2023-04-20","categories":[{"id":6793}]}`:                                   "compilation (prefix DPVRS)",
 		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`:                   "excluded label",
 		`{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793}]}`:             "foreign import (maker 300246)",
 		`{"content_id":"h_1274vrp00012","release_date":"2019-06-20","maker_id":40392,"categories":[{"id":6793},{"id":4022}]}`:  "foreign import (maker 40392)",
