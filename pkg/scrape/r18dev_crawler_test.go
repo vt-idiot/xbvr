@@ -379,11 +379,15 @@ func TestR18devListSourceLimit(t *testing.T) {
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}
 	}))
 	src := config.R18devSource{Type: "category", ID: 6925}
+	known := -1
 	run := func(limit bool) ([]r18devListItem, string) {
 		fetched = nil
-		items, err := c.listSource(src, limit)
+		items, total, _, err := c.listSource(src, limit, known)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if total != pages*r18devPageSize {
+			t.Errorf("total %d", total)
 		}
 		return items, strings.Join(fetched, ",")
 	}
@@ -405,6 +409,20 @@ func TestR18devListSourceLimit(t *testing.T) {
 	}
 	if last := items[len(items)-1]; last.ReleaseDate != "" {
 		t.Errorf("last page should end with the undated scene, got %q", last.ReleaseDate)
+	}
+
+	// Same count as after the last clean run: nothing new, page 1 only. A full crawl ignores it.
+	known = pages * r18devPageSize
+	fetched = nil
+	if items, _, unchanged, _ := c.listSource(src, true, known); !unchanged || len(items) != r18devPageSize || strings.Join(fetched, ",") != "1" {
+		t.Errorf("unchanged limited: unchanged=%v, %d items, fetched %s", unchanged, len(items), strings.Join(fetched, ","))
+	}
+	if _, got := run(false); got != "1,2,3,4,5,6,7,8,9,10,11,12" {
+		t.Errorf("unchanged full crawl: fetched %s", got)
+	}
+	known = pages*r18devPageSize - 3
+	if _, got := run(true); got != "1,2,12" {
+		t.Errorf("3 new scenes, limited: fetched %s", got)
 	}
 }
 
