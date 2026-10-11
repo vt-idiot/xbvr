@@ -89,7 +89,7 @@ func TestR18devBuildSceneRejects(t *testing.T) {
 		`{"content_id":"1sodsvr00003","release_date":"2026-08-31","series_id":4594464,"categories":[{"id":6793},{"id":6012}]}`: "compilation (series 4594464)",
 		`{"content_id":"ovvr00001","release_date":"2020-01-01","label_id":26286,"categories":[{"id":6793}]}`:                   "excluded label",
 		`{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793}]}`:             "foreign import (maker 300246)",
-		`{"content_id":"h_1274vrp00012","release_date":"2019-06-20","maker_id":40392,"categories":[{"id":6793},{"id":4022}]}`:  "foreign import (category 4022)",
+		`{"content_id":"h_1274vrp00012","release_date":"2019-06-20","maker_id":40392,"categories":[{"id":6793},{"id":4022}]}`:  "foreign import (maker 40392)",
 	}
 	for body, want := range cases {
 		_, why, reject := r18devBuildScene(nil, body, "r18dev-test", false)
@@ -448,7 +448,7 @@ func TestR18dActressNameLatinKanji(t *testing.T) {
 	}
 }
 
-func TestR18devForeignImportException(t *testing.T) {
+func TestR18devForeignImportByMaker(t *testing.T) {
 	rvr := `{"content_id":"rvr00064","release_date":"2021-04-19","maker_id":5665,"categories":[{"id":6793},{"id":4022}]}`
 	if _, why, _ := r18devBuildScene(nil, rvr, "r18dev-test", false); why != "" {
 		t.Errorf("rvr00064 is real JAV, got %q", why)
@@ -458,7 +458,7 @@ func TestR18devForeignImportException(t *testing.T) {
 		t.Errorf("wavr00112 is real JAV, got %q", why)
 	}
 	slr := `{"content_id":"h_1539slr00020","release_date":"2023-09-29","maker_id":300246,"categories":[{"id":6793},{"id":4022}]}`
-	if _, why, _ := r18devBuildScene(nil, slr, "r18dev-test", false); why != "foreign import (category 4022)" {
+	if _, why, _ := r18devBuildScene(nil, slr, "r18dev-test", false); why != "foreign import (maker 300246)" {
 		t.Errorf("SLR: got %q", why)
 	}
 }
