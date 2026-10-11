@@ -85,3 +85,18 @@ func TestR18devPreviewNewest(t *testing.T) {
 		t.Errorf("got %+v", p)
 	}
 }
+
+func TestR18devLooksLikeBestOf(t *testing.T) {
+	for title, want := range map[string]bool{
+		"【VR】複数プレイ福袋": true,
+		"【VR秋のギフト】収録分数1300分超！厳選20作品HQ画質をノーカット収録！CASANOVA 秋の大収穫祭スペシャル！": true,
+		"【VR】ハンラシンTHE BEST VR 淫語と接写で射精に導く絶頂のオナ指示109分！":                 true,
+		"【VR】SODVR1000作品突破記念スペシャル第3弾！！絶倫で欲求不満の団地妻たち":                   false,
+		"【VR】天使もえ 最初で最後のVR 1本限りだから全てを詰め込んだ144分":                        false,
+		"【VR】2作品収録！！オナニーを手伝ってあげるスペシャル":                                 false,
+	} {
+		if got := r18devLooksLikeBestOf(title); got != want {
+			t.Errorf("%s: got %v", title, got)
+		}
+	}
+}
